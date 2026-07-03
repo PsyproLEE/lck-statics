@@ -1,0 +1,53 @@
+# Weekly data refresh: Oracle's Elixir (current year) + gol.gg solo kills.
+# Commits the regenerated parquet files, which triggers Streamlit Cloud to
+# redeploy. Manual run: Actions tab -> "Update data" -> Run workflow.
+name: Update data
+
+on:
+  schedule:
+    # Sunday 18:30 UTC = Monday 03:30 KST — right after the week's LCK
+    # matches (Wed-Sun) have finished and landed in OE's daily refresh.
+    - cron: "30 18 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Refresh Oracle's Elixir data (current year)
+        run: python src/update.py
+
+      - name: Refresh gol.gg solo kills
+        # gol.gg is scraped politely (1 page/tournament, 1.5s delay). If the
+        # site is down or its layout changed, keep the previous parquet.
+        continue-on-error: true
+        run: python src/scrape_golgg.py --no-cache
+
+      - name: Commit and push if data changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/processed/lck.parquet data/processed/solokills.parquet
+          if git diff --cached --quiet; then
+            echo "No data changes."
+          else
+            git commit -m "data: auto-update $(date -u +%F)"
+            git push
+          fi

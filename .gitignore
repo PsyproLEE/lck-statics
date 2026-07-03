@@ -1,0 +1,27 @@
+# Oracle's Elixir raw data (do not commit — non-commercial, large, redistributable separately)
+/data/raw/*
+!/data/raw/.gitkeep
+
+# Generated parquet: COMMIT the small app-data files (Streamlit Cloud needs
+# them — raw 779MB is not uploaded), ignore everything else generated.
+/data/processed/*
+!/data/processed/.gitkeep
+!/data/processed/lck.parquet
+!/data/processed/solokills.parquet
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Claude Code local settings (harness-local, not project code)
+.claude/
+
+# IDE
+.idea/
+.vscode/
