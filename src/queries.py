@@ -158,10 +158,14 @@ def _agg_block(g: pd.DataFrame) -> pd.Series:
         return float((v * w).sum() / tot) if tot else float("nan")
 
     def per_min(total_col: str, permin_col: str) -> float:
-        """True rate = sum(total) / sum(minutes); falls back to the weighted
-        mean of the per-minute column for years lacking the total column."""
-        if total_col in g.columns and g[total_col].notna().any() and mins:
-            return float(g[total_col].sum() / mins)
+        """True rate = sum(total) / minutes OF THE GAMES THAT HAVE THE STAT
+        (mixing eras where a stat is unmeasured must not dilute the rate);
+        falls back to the weighted mean of the per-minute column."""
+        if total_col in g.columns and g[total_col].notna().any():
+            v = g[total_col]
+            secs = g["gamelength"].where(v.notna()).sum()
+            if secs:
+                return float(v.sum() / (secs / 60.0))
         return wavg(permin_col)
 
     # First blood: per-row kill+assist involvement, NaN-safe when one of the

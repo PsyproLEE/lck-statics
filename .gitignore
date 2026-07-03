@@ -25,3 +25,7 @@ venv/
 # IDE
 .idea/
 .vscode/
+
+# Generated at test time (tests/parity/gen_expected.py)
+/tests/parity/expected.json
+/docs/data/_expected_tmp.json

@@ -84,6 +84,10 @@ OE가 현재 데이터를 공개 Google Drive 폴더로 제공하므로 `update.
 - **선수 상세** — 시즌 추이 그래프 + 시즌별/챔피언별 표 (더블클릭으로 이동,
   동명이인은 활동 연도로 구분)
 - **팀** — 팀 승률 + 블루/레드 진영별 승률 (포지션·챔피언 필터는 팀 탭에 미적용)
+- **챔피언** — 필터 조건 내 챔피언별 픽 수·승률·KDA·대표 선수
+- **기록실** — 단일 경기 역대 TOP 10 (최다 킬·최고 DPM·15분 최대 골드 리드 등)
+- **필터 공유** — 필터·탭·선수 선택이 URL에 반영되므로 주소를 복사하면
+  같은 화면이 그대로 열립니다.
 
 `LCK 소속 팀만` 토글을 끄면 국제대회 상대 팀까지 포함됩니다.
 켜진 상태에서 대회를 `MSI`/`WLDs`로 바꾸면 LCK 팀들의 국제대회 성적을 봅니다.
@@ -124,10 +128,24 @@ src/update.py         OE Drive에서 연도별 CSV 다운로드 + 증분 병합 
 src/scrape_golgg.py   gol.gg 솔킬 스크랩 (토너먼트 자동 발견) → solokills.parquet
 src/queries.py        집계/필터 + 솔킬 조인 (파이썬 기준 구현, 테스트 대상)
 src/export_web.py     parquet → docs/data/*.json (웹 프론트용)
+docs/agg.js           집계 코어 (브라우저 + Node CI 공용, DOM 비의존)
 docs/                 GitHub Pages 정적 사이트 (index.html, app.js, style.css, data/)
 src/golgg_name_overrides.json  (선택) gol.gg→OE 선수명 보정 맵
 tests/                pytest 단위 테스트 (py -m pytest)
+tests/parity/         JS-파이썬 집계 정합성 검증 (CI에서 자동 실행)
 .github/workflows/update-data.yml  주간 자동 데이터 갱신
+.github/workflows/ci.yml           테스트 + 정합성 검증
+```
+
+### JS-파이썬 정합성
+
+지표 계산 로직은 `src/queries.py`(기준)와 `docs/agg.js`(사이트)에 각각
+존재합니다. 지표를 수정할 때는 **두 곳을 함께** 고쳐야 하며, CI의 parity
+검사(4개 시나리오, 2만+ 값 비교)가 어긋나면 실패합니다. 로컬 검증:
+
+```powershell
+py tests/parity/gen_expected.py
+node tests/parity/check.mjs
 ```
 
 ## 라이선스 / 출처 표기

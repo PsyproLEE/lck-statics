@@ -43,6 +43,15 @@ jobs:
       - name: Export web data (GitHub Pages front-end)
         run: python src/export_web.py
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Verify JS-Python aggregation parity on fresh data
+        run: |
+          python tests/parity/gen_expected.py
+          node tests/parity/check.mjs
+
       - name: Commit and push if data changed
         run: |
           git config user.name "github-actions[bot]"

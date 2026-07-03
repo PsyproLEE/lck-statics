@@ -1,0 +1,35 @@
+# Unit tests + JS-Python aggregation parity.
+# The site (docs/agg.js) re-implements src/queries.py client-side; the parity
+# step regenerates reference values from the parquet and fails on any drift.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Unit tests
+        run: python -m pytest -q
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: JS-Python aggregation parity
+        run: |
+          python tests/parity/gen_expected.py
+          node tests/parity/check.mjs

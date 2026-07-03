@@ -1,10 +1,13 @@
-/* LCK 선수 통계 — static front-end.
-   All filtering/aggregation happens client-side over docs/data/*.json,
-   mirroring src/queries.py (playerid identity, time-weighted rates). */
+/* LCK 선수 통계 — UI layer.
+   Aggregation lives in agg.js (LCKAGG) so Node CI can verify it against
+   src/queries.py. This file: data load, filters, URL state, rendering. */
 'use strict';
 
+const A = LCKAGG;
+const METRICS = A.METRICS, DEC = A.DEC;
+
 // ---------------------------------------------------------------- data
-let G = null;      // games: {n, cols, displayName}
+let G = null;      // games: {n, cols, displayName, nameLow}
 let TG = null;     // teamgames
 let SKMAP = null;  // "namelow|year|league" -> {sk, g}
 let META = null;
@@ -21,7 +24,6 @@ async function loadAll() {
   G = g; TG = tg; META = meta;
   SKMAP = new Map();
   for (const r of sk) SKMAP.set(`${r.key}|${r.year}|${r.league}`, { sk: r.sk, g: r.g });
-  // lowercase name dictionary for solo-kill joins
   G.nameLow = G.cols.name.d.map(s => s.trim().toLowerCase());
 }
 
@@ -31,10 +33,11 @@ const state = {
   years: null, leagues: new Set(['LCK']), splits: null, rounds: null,
   positions: null, teams: null, patches: null, champs: null,
   completeOnly: false, minGames: 5,
-  metrics: null,           // Set of visible metric keys (null until init)
+  metrics: null,
   sortKey: '경기수', sortDir: -1,
   tab: 'lb', pid: null, chartMetric: 'KDA',
   teamSortKey: '승률%', teamSortDir: -1,
+  champSortKey: '경기수', champSortDir: -1,
 };
 
 const METRIC_HELP = {
@@ -61,161 +64,72 @@ const METRIC_HELP = {
   '솔킬': 'gol.gg 기준 솔로킬 (연·리그 단위)',
   '솔킬/G': 'gol.gg 솔킬 ÷ gol.gg 경기수 (연·리그 기준)',
   '블루승률%': '블루 진영 승률', '레드승률%': '레드 진영 승률',
+  '선수수': '이 챔피언을 플레이한 선수 수',
+  '대표선수': '이 챔피언 최다 플레이어 (픽 수)',
 };
-
-// [key, decimals] in display order
-const METRICS = [
-  ['경기수', 0], ['승', 0], ['승률%', 1], ['KDA', 2], ['K', 2], ['D', 2],
-  ['A', 2], ['KP%', 1], ['DPM', 1], ['딜비중%', 1], ['GPM', 1], ['CS/분', 2],
-  ['GD@15', 0], ['CSD@15', 1], ['XPD@15', 1], ['FB%', 1], ['피FB%', 1],
-  ['데스/분', 2], ['데스지분%', 1], ['받은딜/분', 0], ['완화/분', 0],
-  ['DPG', 3], ['시야/분', 2], ['챔프수', 0], ['솔킬', 0], ['솔킬/G', 3],
-];
-const DEC = Object.fromEntries(METRICS);
 const CHART_METRICS = ['KDA', 'DPM', 'GPM', 'CS/분', '승률%', 'KP%'];
+const TABS = ['lb', 'detail', 'team', 'champs', 'records'];
 
-// ---------------------------------------------------------------- filtering
-function codeSet(dictCol, values) {
-  if (!values) return null;
-  const s = new Set();
-  dictCol.d.forEach((v, c) => { if (values.has(v)) s.add(c); });
-  return s;
-}
-
-function filterRows() {
-  const c = G.cols, n = G.n;
-  const fLeague = codeSet(c.league, state.leagues);
-  const fSplit = codeSet(c.split, state.splits);
-  const fRound = codeSet(c.round, state.rounds);
-  const fPos = codeSet(c.pos, state.positions);
-  const fTeam = codeSet(c.team, state.teams);
-  const fPatch = codeSet(c.patch, state.patches);
-  const fChamp = codeSet(c.champ, state.champs);
-  const out = [];
-  for (let i = 0; i < n; i++) {
-    if (state.lckOnly && !c.lck[i]) continue;
-    if (state.years && !state.years.has(c.year[i])) continue;
-    if (fLeague && !fLeague.has(c.league.i[i])) continue;
-    if (fSplit && !fSplit.has(c.split.i[i])) continue;
-    if (fRound && !fRound.has(c.round.i[i])) continue;
-    if (fPos && !fPos.has(c.pos.i[i])) continue;
-    if (fTeam && !fTeam.has(c.team.i[i])) continue;
-    if (fPatch && !fPatch.has(c.patch.i[i])) continue;
-    if (fChamp && !fChamp.has(c.champ.i[i])) continue;
-    if (state.completeOnly && !c.ok[i]) continue;
-    out.push(i);
-  }
-  return out;
-}
-
-// ---------------------------------------------------------------- aggregation
-// Accumulator mirroring queries._agg_block (time-weighted per-minute rates).
-function newAcc() {
+function currentFilter() {
   return {
-    games: 0, wins: 0, k: 0, d: 0, a: 0, tk: 0, td: 0, len: 0,
-    dmg: 0, dmgLen: 0, gold: 0, goldLen: 0, cs: 0, csLen: 0, vs: 0, vsLen: 0,
-    dshare: 0, dshareN: 0, dtpmW: 0, dtpmLen: 0, dmpmW: 0, dmpmLen: 0,
-    gd15: 0, gd15N: 0, csd15: 0, csd15N: 0, xpd15: 0, xpd15N: 0,
-    fb: 0, fbN: 0, fbv: 0, fbvN: 0,
-    champs: new Set(), teams: new Map(), poss: new Map(), skKeys: new Set(),
+    lckOnly: state.lckOnly, years: state.years, leagues: state.leagues,
+    splits: state.splits, rounds: state.rounds, positions: state.positions,
+    teams: state.teams, patches: state.patches, champs: state.champs,
+    completeOnly: state.completeOnly,
   };
 }
 
-function accAdd(acc, i) {
-  const c = G.cols;
-  acc.games++;
-  acc.wins += c.win[i] || 0;
-  acc.k += c.k[i] || 0; acc.d += c.d[i] || 0; acc.a += c.a[i] || 0;
-  acc.tk += c.tk[i] || 0; acc.td += c.td[i] || 0;
-  const len = c.len[i] || 0;
-  acc.len += len;
-  if (c.dmg[i] != null) { acc.dmg += c.dmg[i]; acc.dmgLen += len; }
-  if (c.gold[i] != null) { acc.gold += c.gold[i]; acc.goldLen += len; }
-  if (c.cs[i] != null) { acc.cs += c.cs[i]; acc.csLen += len; }
-  if (c.vs[i] != null) { acc.vs += c.vs[i]; acc.vsLen += len; }
-  if (c.dshare[i] != null) { acc.dshare += c.dshare[i]; acc.dshareN++; }
-  if (c.dtpm[i] != null) { acc.dtpmW += c.dtpm[i] * len; acc.dtpmLen += len; }
-  if (c.dmpm[i] != null) { acc.dmpmW += c.dmpm[i] * len; acc.dmpmLen += len; }
-  if (c.gd15[i] != null) { acc.gd15 += c.gd15[i]; acc.gd15N++; }
-  if (c.csd15[i] != null) { acc.csd15 += c.csd15[i]; acc.csd15N++; }
-  if (c.xpd15[i] != null) { acc.xpd15 += c.xpd15[i]; acc.xpd15N++; }
-  if (c.fbk[i] != null || c.fba[i] != null) {
-    acc.fb += (c.fbk[i] || 0) + (c.fba[i] || 0); acc.fbN++;
+// ---------------------------------------------------------------- URL state
+// Sharable links: filters/tab/player live in the query string.
+const URL_SETS = [
+  ['years', 'y', true], ['leagues', 'lg', false], ['splits', 'sp', false],
+  ['rounds', 'rd', false], ['positions', 'pos', false], ['teams', 'tm', false],
+  ['patches', 'pt', false], ['champs', 'ch', false],
+];
+
+function stateToURL() {
+  const p = new URLSearchParams();
+  if (!state.lckOnly) p.set('lck', '0');
+  for (const [key, short] of URL_SETS) {
+    const sel = state[key];
+    const isDefault = key === 'leagues'
+      ? (sel && sel.size === 1 && sel.has('LCK'))
+      : sel == null;
+    if (isDefault) continue;
+    p.set(short, sel == null ? 'all'
+      : [...sel].map(v => encodeURIComponent(v)).join(','));
   }
-  if (c.fbv[i] != null) { acc.fbv += c.fbv[i]; acc.fbvN++; }
-  const ch = c.champ.d[c.champ.i[i]];
-  if (ch) acc.champs.add(ch);
-  const tm = c.team.d[c.team.i[i]];
-  acc.teams.set(tm, (acc.teams.get(tm) || 0) + 1);
-  const ps = c.pos.d[c.pos.i[i]];
-  acc.poss.set(ps, (acc.poss.get(ps) || 0) + 1);
-  acc.skKeys.add(`${G.nameLow[c.name.i[i]]}|${c.year[i]}|${c.league.d[c.league.i[i]]}`);
+  if (state.completeOnly) p.set('co', '1');
+  if (state.minGames !== 5) p.set('mg', String(state.minGames));
+  if (state.tab !== 'lb') p.set('t', state.tab);
+  if (state.tab === 'detail' && state.pid) p.set('p', state.pid);
+  if (state.chartMetric !== 'KDA') p.set('cm', state.chartMetric);
+  const qs = p.toString();
+  history.replaceState(null, '', qs ? '?' + qs : location.pathname);
 }
 
-function accFinish(acc) {
-  const mins = acc.len / 60;
-  const rate = (sum, secs) => secs > 0 ? sum / (secs / 60) : null;
-  const dpm = rate(acc.dmg, acc.dmgLen);
-  const gpm = rate(acc.gold, acc.goldLen);
-  let sk = null, skG = 0, skGnull = false, matched = false;
-  for (const key of acc.skKeys) {
-    const hit = SKMAP.get(key);
-    if (!hit) continue;
-    matched = true;
-    sk = (sk || 0) + hit.sk;
-    if (hit.g == null) skGnull = true; else skG += hit.g;
+function urlToState() {
+  const p = new URLSearchParams(location.search);
+  if (p.get('lck') === '0') state.lckOnly = false;
+  for (const [key, short, numeric] of URL_SETS) {
+    const raw = p.get(short);
+    if (raw == null) continue;
+    if (raw === 'all') { state[key] = null; continue; }
+    const vals = raw.split(',').map(decodeURIComponent);
+    state[key] = new Set(numeric ? vals.map(Number) : vals);
   }
-  return {
-    '경기수': acc.games,
-    '승': acc.wins,
-    '승률%': acc.games ? 100 * acc.wins / acc.games : null,
-    'KDA': acc.d > 0 ? (acc.k + acc.a) / acc.d : acc.k + acc.a,
-    'K': acc.games ? acc.k / acc.games : null,
-    'D': acc.games ? acc.d / acc.games : null,
-    'A': acc.games ? acc.a / acc.games : null,
-    'KP%': acc.tk > 0 ? 100 * (acc.k + acc.a) / acc.tk : null,
-    'DPM': dpm,
-    '딜비중%': acc.dshareN ? 100 * acc.dshare / acc.dshareN : null,
-    'GPM': gpm,
-    'CS/분': rate(acc.cs, acc.csLen),
-    'GD@15': acc.gd15N ? acc.gd15 / acc.gd15N : null,
-    'CSD@15': acc.csd15N ? acc.csd15 / acc.csd15N : null,
-    'XPD@15': acc.xpd15N ? acc.xpd15 / acc.xpd15N : null,
-    'FB%': acc.fbN ? 100 * acc.fb / acc.fbN : null,
-    '피FB%': acc.fbvN ? 100 * acc.fbv / acc.fbvN : null,
-    '데스/분': mins > 0 ? acc.d / mins : null,
-    '데스지분%': acc.td > 0 ? 100 * acc.d / acc.td : null,
-    '받은딜/분': acc.dtpmLen > 0 ? acc.dtpmW / acc.dtpmLen : null,
-    '완화/분': acc.dmpmLen > 0 ? acc.dmpmW / acc.dmpmLen : null,
-    'DPG': dpm != null && gpm ? dpm / gpm : null,
-    '시야/분': rate(acc.vs, acc.vsLen),
-    '챔프수': acc.champs.size,
-    '솔킬': matched ? sk : null,
-    '솔킬/G': matched && !skGnull && skG > 0 ? sk / skG : null,
-  };
-}
-
-const topOf = (map) => {
-  let best = '', n = -1;
-  for (const [k, v] of map) if (v > n) { n = v; best = k; }
-  return best;
-};
-
-function aggregateBy(rows, keyFn) {
-  const m = new Map();
-  for (const i of rows) {
-    const key = keyFn(i);
-    let acc = m.get(key);
-    if (!acc) { acc = newAcc(); m.set(key, acc); }
-    accAdd(acc, i);
-  }
-  return m;
+  if (p.get('co') === '1') state.completeOnly = true;
+  const mg = parseInt(p.get('mg'), 10);
+  if (mg >= 1 && mg <= 50) state.minGames = mg;
+  if (TABS.includes(p.get('t'))) state.tab = p.get('t');
+  if (p.get('p')) state.pid = p.get('p');
+  if (CHART_METRICS.includes(p.get('cm'))) state.chartMetric = p.get('cm');
 }
 
 // ---------------------------------------------------------------- multiselect
 const msInstances = {};
 
-function makeMS(mountId, key, label, options, { searchable = false, format = null } = {}) {
+function makeMS(mountId, key, label, options, { searchable = false } = {}) {
   const mount = $(mountId);
   mount.innerHTML = '';
   mount.className = 'ms';
@@ -227,20 +141,15 @@ function makeMS(mountId, key, label, options, { searchable = false, format = nul
   panel.className = 'ms-panel'; panel.hidden = true;
   mount.append(lab, btn, panel);
 
-  const inst = { options, key, btn, panel, format };
+  const inst = { options, key, btn, panel };
   msInstances[key] = inst;
 
   function selected() { return state[key]; }
-  function labelText() {
-    const sel = selected();
-    if (!sel) return `전체 (${options.length})`;
-    if (sel.size === 0) return `전체 (${options.length})`;
-    if (sel.size === 1) return String([...sel][0]);
-    return `${sel.size}개 선택`;
-  }
   function syncBtn() {
-    btn.textContent = labelText();
-    btn.classList.toggle('some', !!(selected() && selected().size));
+    const sel = selected();
+    btn.textContent = (!sel || sel.size === 0) ? `전체 (${options.length})`
+      : sel.size === 1 ? String([...sel][0]) : `${sel.size}개 선택`;
+    btn.classList.toggle('some', !!(sel && sel.size));
   }
   inst.syncBtn = syncBtn;
 
@@ -257,7 +166,6 @@ function makeMS(mountId, key, label, options, { searchable = false, format = nul
     tools.append(bAll, bNone);
     panel.append(tools);
 
-    let list = options;
     if (searchable) {
       const inp = document.createElement('input');
       inp.className = 'ms-search'; inp.placeholder = '검색…';
@@ -269,7 +177,7 @@ function makeMS(mountId, key, label, options, { searchable = false, format = nul
       };
       panel.append(inp);
     }
-    for (const v of list) {
+    for (const v of options) {
       const row = document.createElement('label');
       row.className = 'ms-opt'; row.dataset.v = String(v);
       const cb = document.createElement('input');
@@ -283,7 +191,7 @@ function makeMS(mountId, key, label, options, { searchable = false, format = nul
         syncBtn(); scheduleRender();
       };
       const span = document.createElement('span');
-      span.textContent = format ? format(v) : String(v);
+      span.textContent = String(v);
       row.append(cb, span);
       panel.append(row);
     }
@@ -296,7 +204,6 @@ function makeMS(mountId, key, label, options, { searchable = false, format = nul
     if (!open) { rebuild(); panel.hidden = false; }
   };
   syncBtn();
-  inst.rebuild = rebuild;
   return inst;
 }
 
@@ -321,9 +228,12 @@ function patchSort(a, b) {
   if (pa.some(isNaN) || pb.some(isNaN)) return a < b ? -1 : 1;
   return (pa[0] - pb[0]) || (pa[1] - pb[1]);
 }
-
 function visibleMetrics() {
   return METRICS.map(m => m[0]).filter(k => !state.metrics || state.metrics.has(k));
+}
+function rowSeason(i) {
+  const c = G.cols;
+  return `${c.year[i]} ${c.split.d[c.split.i[i]]} · ${c.round.d[c.round.i[i]]}`;
 }
 
 // ---------------------------------------------------------------- rendering
@@ -333,15 +243,18 @@ function scheduleRender() {
   renderTimer = setTimeout(renderAll, 90);
 }
 
-let curRows = [];        // filtered row indices
-let curLB = [];          // leaderboard row objects
+let curRows = [];
+let curLB = [];
 
 function renderAll() {
-  curRows = filterRows();
+  curRows = A.filterRows(G, currentFilter());
+  stateToURL();
   renderSummary();
   renderLeaderboard();
   renderDetail();
   renderTeams();
+  renderChampions();
+  renderRecords();
 }
 
 function renderSummary() {
@@ -363,25 +276,8 @@ function renderSummary() {
     `<div class="card"><div class="cv">${v}</div><div class="ck">${k}</div></div>`).join('');
 }
 
-function buildLeaderboard() {
-  const c = G.cols;
-  const byPid = aggregateBy(curRows, i => c.pid.i[i]);
-  const rows = [];
-  for (const [pidCode, acc] of byPid) {
-    if (acc.games < state.minGames) continue;
-    const pidStr = c.pid.d[pidCode];
-    const m = accFinish(acc);
-    m['선수'] = G.displayName[pidStr] || topOf(acc.teams);
-    m['팀'] = topOf(acc.teams);
-    m['포지션'] = topOf(acc.poss);
-    m._pid = pidStr;
-    rows.push(m);
-  }
-  return rows;
-}
-
 function sortRows(rows, key, dir) {
-  const isTxt = key === '선수' || key === '팀' || key === '포지션';
+  const isTxt = ['선수', '팀', '포지션', '챔피언', '대표선수'].includes(key);
   rows.sort((a, b) => {
     const va = a[key], vb = b[key];
     if (va == null && vb == null) return 0;
@@ -392,48 +288,52 @@ function sortRows(rows, key, dir) {
   });
 }
 
+function sortableTable(wrapId, headCols, txtCols, rows, cellFn, sortState, onSort) {
+  const ths = headCols.map(h => {
+    if (h === '#') return '<th>#</th>';
+    const sorted = sortState.key === h;
+    const arr = sorted ? `<span class="arr">${sortState.dir < 0 ? '▼' : '▲'}</span>` : '';
+    const cls = txtCols.includes(h) ? 'txt' : '';
+    const help = METRIC_HELP[h] ? ` title="${esc(METRIC_HELP[h])}"` : '';
+    return `<th class="${cls}${sorted ? ' sorted' : ''}" data-k="${esc(h)}"${help}>${esc(h)}${arr}</th>`;
+  }).join('');
+  const body = rows.map(cellFn).join('');
+  $(wrapId).innerHTML = `<table><thead><tr>${ths}</tr></thead><tbody>${body}</tbody></table>`;
+  $(wrapId).querySelectorAll('th[data-k]').forEach(th => {
+    th.onclick = () => onSort(th.dataset.k, txtCols.includes(th.dataset.k));
+  });
+}
+
 function renderLeaderboard() {
-  curLB = buildLeaderboard();
+  curLB = A.buildLeaderboard(G, SKMAP, curRows, state.minGames);
   sortRows(curLB, state.sortKey, state.sortDir);
   const mets = visibleMetrics();
   const showSK = mets.includes('솔킬') || mets.includes('솔킬/G');
   $('skNote').hidden = !(showSK && SKMAP.size);
   $('lbNote').innerHTML = curLB.length
-    ? `<b>${curLB.length}</b>명 (최소 ${state.minGames}경기)`
-    : '';
+    ? `<b>${curLB.length}</b>명 (최소 ${state.minGames}경기)` : '';
   if (!curLB.length) {
     $('lbWrap').innerHTML = `<div class="empty">조건을 만족하는 선수가 없습니다. 필터를 완화해 보세요.</div>`;
     return;
   }
-  const head = ['#', '선수', '팀', '포지션', ...mets];
-  const ths = head.map(h => {
-    if (h === '#') return '<th>#</th>';
-    const sorted = state.sortKey === h;
-    const arr = sorted ? `<span class="arr">${state.sortDir < 0 ? '▼' : '▲'}</span>` : '';
-    const cls = (h === '선수' || h === '팀' || h === '포지션') ? 'txt' : '';
-    const help = METRIC_HELP[h] ? ` title="${esc(METRIC_HELP[h])}"` : '';
-    return `<th class="${cls}${sorted ? ' sorted' : ''}" data-k="${esc(h)}"${help}>${esc(h)}${arr}</th>`;
-  }).join('');
-  const body = curLB.map((r, idx) => {
-    const tds = mets.map(k => {
-      let cls = '';
-      if (k === '승률%' && r[k] != null) cls = r[k] >= 55 ? ' class="pct-hi"' : (r[k] < 45 ? ' class="pct-lo"' : '');
-      return `<td${cls}>${fmt(r[k], DEC[k])}</td>`;
-    }).join('');
-    return `<tr data-pid="${esc(r._pid)}"><td class="rank">${idx + 1}</td>` +
-      `<td class="txt player">${esc(r['선수'])}</td>` +
-      `<td class="txt">${esc(r['팀'])}</td><td class="txt badge">${esc(r['포지션'])}</td>${tds}</tr>`;
-  }).join('');
-  $('lbWrap').innerHTML = `<table><thead><tr>${ths}</tr></thead><tbody>${body}</tbody></table>`;
-
-  $('lbWrap').querySelectorAll('th[data-k]').forEach(th => {
-    th.onclick = () => {
-      const k = th.dataset.k;
+  sortableTable('lbWrap', ['#', '선수', '팀', '포지션', ...mets], ['선수', '팀', '포지션'],
+    curLB,
+    (r, idx) => {
+      const tds = mets.map(k => {
+        let cls = '';
+        if (k === '승률%' && r[k] != null) cls = r[k] >= 55 ? ' class="pct-hi"' : (r[k] < 45 ? ' class="pct-lo"' : '');
+        return `<td${cls}>${fmt(r[k], DEC[k])}</td>`;
+      }).join('');
+      return `<tr data-pid="${esc(r._pid)}"><td class="rank">${idx + 1}</td>` +
+        `<td class="txt player">${esc(r['선수'])}</td>` +
+        `<td class="txt">${esc(r['팀'])}</td><td class="txt badge">${esc(r['포지션'])}</td>${tds}</tr>`;
+    },
+    { key: state.sortKey, dir: state.sortDir },
+    (k, isTxt) => {
       if (state.sortKey === k) state.sortDir *= -1;
-      else { state.sortKey = k; state.sortDir = (k === '선수' || k === '팀' || k === '포지션') ? 1 : -1; }
+      else { state.sortKey = k; state.sortDir = isTxt ? 1 : -1; }
       renderLeaderboard();
-    };
-  });
+    });
   $('lbWrap').querySelectorAll('tbody tr').forEach(tr => {
     tr.ondblclick = () => { selectPlayer(tr.dataset.pid); switchTab('detail'); };
   });
@@ -445,7 +345,7 @@ function csvDownload() {
   const lines = [head.join(',')];
   for (const r of curLB) {
     lines.push(head.map(k => {
-      const v = k === '선수' || k === '팀' || k === '포지션' ? r[k] : r[k];
+      const v = r[k];
       if (v == null) return '';
       const s = String(typeof v === 'number' ? +v.toFixed(DEC[k] ?? 2) : v);
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -479,6 +379,7 @@ function selectPlayer(pid) {
   state.pid = pid;
   $('playerSearch').value = G.displayName[pid] || '';
   renderDetail();
+  stateToURL();
 }
 
 function renderPlayerList(query) {
@@ -497,24 +398,24 @@ function renderPlayerList(query) {
 function seasonalGroups(pidStr) {
   const c = G.cols;
   const pidCode = c.pid.d.indexOf(pidStr);
-  const groups = new Map(); // key -> {year, split, round, league, acc}
+  const groups = new Map();
   for (const i of curRows) {
     if (c.pid.i[i] !== pidCode) continue;
     const y = c.year[i], s = c.split.d[c.split.i[i]],
       rd = c.round.d[c.round.i[i]], lg = c.league.d[c.league.i[i]];
     const key = `${y}|${s}|${rd}|${lg}`;
     let g = groups.get(key);
-    if (!g) { g = { year: y, split: s, round: rd, league: lg, acc: newAcc() }; groups.set(key, g); }
-    accAdd(g.acc, i);
+    if (!g) { g = { year: y, split: s, round: rd, league: lg, acc: A.newAcc() }; groups.set(key, g); }
+    A.accAdd(g.acc, i, G);
   }
   const arr = [...groups.values()];
   arr.sort((a, b) => (a.year - b.year) ||
     a.split.localeCompare(b.split) || a.round.localeCompare(b.round, 'ko') ||
     a.league.localeCompare(b.league));
-  return arr.map(g => ({ ...g, m: accFinish(g.acc) }));
+  return arr.map(g => ({ ...g, m: A.accFinish(g.acc, SKMAP) }));
 }
 
-function champGroups(pidStr) {
+function champGroupsOf(pidStr) {
   const c = G.cols;
   const pidCode = c.pid.d.indexOf(pidStr);
   const byChamp = new Map();
@@ -522,10 +423,10 @@ function champGroups(pidStr) {
     if (c.pid.i[i] !== pidCode) continue;
     const ch = c.champ.d[c.champ.i[i]];
     let acc = byChamp.get(ch);
-    if (!acc) { acc = newAcc(); byChamp.set(ch, acc); }
-    accAdd(acc, i);
+    if (!acc) { acc = A.newAcc(); byChamp.set(ch, acc); }
+    A.accAdd(acc, i, G);
   }
-  const arr = [...byChamp.entries()].map(([ch, acc]) => ({ champ: ch, m: accFinish(acc) }));
+  const arr = [...byChamp.entries()].map(([ch, acc]) => ({ champ: ch, m: A.accFinish(acc, null) }));
   arr.sort((a, b) => b.m['경기수'] - a.m['경기수']);
   return arr;
 }
@@ -582,7 +483,7 @@ function renderDetail() {
   const pid = state.pid;
   const name = G.displayName[pid] || '?';
   const seas = seasonalGroups(pid);
-  const champs = champGroups(pid);
+  const champs = champGroupsOf(pid);
   const mets = visibleMetrics();
 
   const labels = seas.map(s => `${s.year} ${s.split} · ${s.round}`);
@@ -601,81 +502,85 @@ function renderDetail() {
 }
 
 // ---------------------------------------------------------------- teams
-function filterTeamGames() {
-  const c = TG.cols;
-  const fLeague = codeSet(c.league, state.leagues);
-  const fSplit = codeSet(c.split, state.splits);
-  const fRound = codeSet(c.round, state.rounds);
-  const fTeam = codeSet(c.team, state.teams);
-  const fPatch = codeSet(c.patch, state.patches);
-  const out = [];
-  for (let i = 0; i < TG.n; i++) {
-    if (state.lckOnly && !c.lck[i]) continue;
-    if (state.years && !state.years.has(c.year[i])) continue;
-    if (fLeague && !fLeague.has(c.league.i[i])) continue;
-    if (fSplit && !fSplit.has(c.split.i[i])) continue;
-    if (fRound && !fRound.has(c.round.i[i])) continue;
-    if (fTeam && !fTeam.has(c.team.i[i])) continue;
-    if (fPatch && !fPatch.has(c.patch.i[i])) continue;
-    if (state.completeOnly && !c.ok[i]) continue;
-    out.push(i);
-  }
-  return out;
-}
-
 function renderTeams() {
-  const c = TG.cols;
-  const idxs = filterTeamGames();
-  const by = new Map();
-  for (const i of idxs) {
-    const t = c.team.d[c.team.i[i]];
-    let o = by.get(t);
-    if (!o) { o = { team: t, g: 0, w: 0, bg: 0, bw: 0, rg: 0, rw: 0 }; by.set(t, o); }
-    o.g++; o.w += c.win[i] || 0;
-    if (c.blue[i]) { o.bg++; o.bw += c.win[i] || 0; }
-    else { o.rg++; o.rw += c.win[i] || 0; }
-  }
-  let rows = [...by.values()].filter(o => o.g >= state.minGames).map(o => ({
-    '팀': o.team, '경기수': o.g, '승': o.w,
-    '승률%': 100 * o.w / o.g,
-    '블루승률%': o.bg ? 100 * o.bw / o.bg : null,
-    '레드승률%': o.rg ? 100 * o.rw / o.rg : null,
-  }));
+  const rows = A.buildTeams(TG, currentFilter(), state.minGames);
   if (!rows.length) {
     $('teamWrap').innerHTML = '<div class="empty">조건을 만족하는 팀이 없습니다.</div>';
     $('teamBars').innerHTML = '';
     return;
   }
-  const k = state.teamSortKey, dir = state.teamSortDir;
-  rows.sort((a, b) => {
-    const va = a[k], vb = b[k];
-    if (va == null) return 1; if (vb == null) return -1;
-    if (k === '팀') return dir * String(va).localeCompare(String(vb), 'ko');
-    return dir * (va - vb);
-  });
-  const cols = ['팀', '경기수', '승', '승률%', '블루승률%', '레드승률%'];
-  const ths = cols.map(h => {
-    const sorted = k === h;
-    const arr = sorted ? `<span class="arr">${dir < 0 ? '▼' : '▲'}</span>` : '';
-    const help = METRIC_HELP[h] ? ` title="${esc(METRIC_HELP[h])}"` : '';
-    return `<th class="${h === '팀' ? 'txt' : ''}${sorted ? ' sorted' : ''}" data-k="${h}"${help}>${h}${arr}</th>`;
-  }).join('');
-  const body = rows.map(r => `<tr><td class="txt player">${esc(r['팀'])}</td>` +
-    cols.slice(1).map(cc => `<td>${fmt(r[cc], cc === '경기수' || cc === '승' ? 0 : 1)}</td>`).join('') + '</tr>').join('');
-  $('teamWrap').innerHTML = `<table><thead><tr>${ths}</tr></thead><tbody>${body}</tbody></table>`;
-  $('teamWrap').querySelectorAll('th[data-k]').forEach(th => {
-    th.onclick = () => {
-      const kk = th.dataset.k;
-      if (state.teamSortKey === kk) state.teamSortDir *= -1;
-      else { state.teamSortKey = kk; state.teamSortDir = kk === '팀' ? 1 : -1; }
+  sortRows(rows, state.teamSortKey, state.teamSortDir);
+  sortableTable('teamWrap', ['팀', '경기수', '승', '승률%', '블루승률%', '레드승률%'], ['팀'],
+    rows,
+    r => `<tr><td class="txt player">${esc(r['팀'])}</td>` +
+      ['경기수', '승', '승률%', '블루승률%', '레드승률%'].map(cc =>
+        `<td>${fmt(r[cc], cc === '경기수' || cc === '승' ? 0 : 1)}</td>`).join('') + '</tr>',
+    { key: state.teamSortKey, dir: state.teamSortDir },
+    (k, isTxt) => {
+      if (state.teamSortKey === k) state.teamSortDir *= -1;
+      else { state.teamSortKey = k; state.teamSortDir = isTxt ? 1 : -1; }
       renderTeams();
-    };
-  });
+    });
   const byWr = [...rows].sort((a, b) => b['승률%'] - a['승률%']);
   $('teamBars').innerHTML = byWr.map(r =>
     `<div class="tb-row"><div class="tb-name">${esc(r['팀'])}</div>` +
     `<div class="tb-track"><div class="tb-fill" style="width:${r['승률%'].toFixed(1)}%"></div></div>` +
     `<div class="tb-val">${r['승률%'].toFixed(1)}%</div></div>`).join('');
+}
+
+// ---------------------------------------------------------------- champions
+const CHAMP_COLS = ['경기수', '승률%', 'KDA', 'K', 'D', 'A', 'DPM', 'GPM',
+  'CS/분', '딜비중%', '선수수', '대표선수'];
+
+function renderChampions() {
+  const rows = A.buildChampions(G, curRows, state.minGames);
+  $('champNote').innerHTML = rows.length
+    ? `<b>${rows.length}</b>챔피언 (최소 ${state.minGames}픽) — 필터 조건 내 픽 기준`
+    : '';
+  if (!rows.length) {
+    $('champWrap').innerHTML = '<div class="empty">조건을 만족하는 챔피언이 없습니다.</div>';
+    return;
+  }
+  sortRows(rows, state.champSortKey, state.champSortDir);
+  sortableTable('champWrap', ['#', '챔피언', ...CHAMP_COLS], ['챔피언', '대표선수'],
+    rows,
+    (r, idx) => {
+      const tds = CHAMP_COLS.map(k => {
+        if (k === '대표선수') return `<td class="txt">${esc(r[k])}</td>`;
+        let cls = '';
+        if (k === '승률%' && r[k] != null) cls = r[k] >= 55 ? ' class="pct-hi"' : (r[k] < 45 ? ' class="pct-lo"' : '');
+        return `<td${cls}>${fmt(r[k], k === '선수수' ? 0 : DEC[k])}</td>`;
+      }).join('');
+      return `<tr><td class="rank">${idx + 1}</td><td class="txt player">${esc(r['챔피언'])}</td>${tds}</tr>`;
+    },
+    { key: state.champSortKey, dir: state.champSortDir },
+    (k, isTxt) => {
+      if (state.champSortKey === k) state.champSortDir *= -1;
+      else { state.champSortKey = k; state.champSortDir = isTxt ? 1 : -1; }
+      renderChampions();
+    });
+}
+
+// ---------------------------------------------------------------- records
+function renderRecords() {
+  const c = G.cols;
+  const recs = A.buildRecords(G, curRows, 10);
+  $('recordsGrid').innerHTML = recs.map(rec => {
+    const rows = rec.top.map((h, n) => {
+      const i = h.i;
+      return `<tr><td class="rank">${n + 1}</td>` +
+        `<td class="txt player">${esc(c.name.d[c.name.i[i]])}</td>` +
+        `<td class="txt rc-champ">${esc(c.champ.d[c.champ.i[i]])}</td>` +
+        `<td class="txt rc-meta">${esc(c.team.d[c.team.i[i]])}</td>` +
+        `<td class="txt rc-meta">${esc(rowSeason(i))}</td>` +
+        `<td class="rc-val">${fmt(h.v, rec.dec)}</td></tr>`;
+    }).join('');
+    return `<div class="rec-card"><h3>${esc(rec.label)}</h3>` +
+      (rec.top.length
+        ? `<table><tbody>${rows}</tbody></table>`
+        : '<div class="empty">데이터 없음</div>') +
+      `</div>`;
+  }).join('');
 }
 
 // ---------------------------------------------------------------- tabs & init
@@ -685,6 +590,7 @@ function switchTab(t) {
     el.classList.toggle('active', el.dataset.tab === t));
   document.querySelectorAll('.pane').forEach(el =>
     el.classList.toggle('active', el.id === 'pane-' + t));
+  stateToURL();
 }
 
 function uniqueSorted(dictCol) {
@@ -709,18 +615,21 @@ function initControls() {
   }
   const allTeams = uniqueSorted(c.team);
 
-  if (!leagues.includes('LCK')) state.leagues = null;
+  if (state.leagues && state.leagues.size === 1 && state.leagues.has('LCK')
+      && !leagues.includes('LCK')) state.leagues = null;
 
   makeMS('msYear', 'years', '년도', years);
   makeMS('msLeague', 'leagues', '대회 / 리그', leagues);
   makeMS('msSplit', 'splits', '시즌', splits);
   makeMS('msRound', 'rounds', '라운드', rounds);
   makeMS('msPos', 'positions', '포지션', poss);
-  const teamMS = makeMS('msTeam', 'teams', '팀', lckTeams, { searchable: true });
+  const teamMS = makeMS('msTeam', 'teams', '팀',
+    state.lckOnly ? lckTeams : allTeams, { searchable: true });
   makeMS('msPatch', 'patches', '패치', patches, { searchable: true });
   makeMS('msChamp', 'champs', '챔피언', champs, { searchable: true });
   makeMS('msMetrics', 'metrics', '표시할 지표', METRICS.map(m => m[0]));
 
+  $('fLckOnly').checked = state.lckOnly;
   $('fLckOnly').onchange = () => {
     state.lckOnly = $('fLckOnly').checked;
     state.teams = null;
@@ -729,9 +638,12 @@ function initControls() {
     teamMS.syncBtn();
     scheduleRender();
   };
+  $('fCompleteOnly').checked = state.completeOnly;
   $('fCompleteOnly').onchange = () => {
     state.completeOnly = $('fCompleteOnly').checked; scheduleRender();
   };
+  $('fMinGames').value = state.minGames;
+  $('minGamesVal').textContent = state.minGames;
   $('fMinGames').oninput = () => {
     state.minGames = +$('fMinGames').value;
     $('minGamesVal').textContent = state.minGames;
@@ -760,13 +672,15 @@ function initControls() {
 
   const sel = $('chartMetric');
   sel.innerHTML = CHART_METRICS.map(m => `<option>${m}</option>`).join('');
-  sel.onchange = () => { state.chartMetric = sel.value; renderDetail(); };
+  sel.value = state.chartMetric;
+  sel.onchange = () => { state.chartMetric = sel.value; renderDetail(); stateToURL(); };
 
   $('playerSearch').oninput = () => renderPlayerList($('playerSearch').value);
   $('playerSearch').onfocus = () => renderPlayerList($('playerSearch').value);
 
   $('filterToggle').onclick = () => $('sidebar').classList.toggle('open');
 
+  switchTab(state.tab);
   $('topMeta').textContent =
     `데이터: ${META.years ? META.years.join('–') : ''} · ${(META.rows || 0).toLocaleString()}행 · 갱신 ${META.updated || '-'}`;
 }
@@ -774,6 +688,7 @@ function initControls() {
 (async function main() {
   try {
     await loadAll();
+    urlToState();
     initControls();
     renderAll();
   } catch (err) {

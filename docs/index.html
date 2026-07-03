@@ -69,6 +69,8 @@
       <button class="tab active" data-tab="lb">선수 리더보드</button>
       <button class="tab" data-tab="detail">선수 상세</button>
       <button class="tab" data-tab="team">팀</button>
+      <button class="tab" data-tab="champs">챔피언</button>
+      <button class="tab" data-tab="records">기록실</button>
     </nav>
 
     <section class="pane active" id="pane-lb">
@@ -99,6 +101,17 @@
       <div class="team-bars" id="teamBars"></div>
     </section>
 
+    <section class="pane" id="pane-champs">
+      <p class="note" id="champNote"></p>
+      <div class="table-wrap" id="champWrap"></div>
+    </section>
+
+    <section class="pane" id="pane-records">
+      <p class="note dim">필터 조건 내 <b>단일 경기</b> 역대 기록 TOP 10.
+        멀티킬(펜타킬 등)·상대팀 정보는 원본 데이터에 없어 제공하지 않습니다.</p>
+      <div class="records-grid" id="recordsGrid"></div>
+    </section>
+
     <footer class="foot">
       데이터 출처: <a href="https://oracleselixir.com" target="_blank" rel="noopener">Oracle's Elixir</a>
       (비상업적 사용, 일부 Leaguepedia CC-BY-SA 3.0) · 솔킬:
@@ -111,6 +124,7 @@
 
 <div class="loading" id="loading"><div class="spin"></div><p>데이터 로딩 중…</p></div>
 
+<script src="agg.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
