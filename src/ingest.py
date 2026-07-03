@@ -11,6 +11,7 @@ Usage:
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -27,10 +28,16 @@ ROOT = Path(__file__).resolve().parents[1]
 RAW_DIR = ROOT / "data" / "raw"
 OUT_PATH = ROOT / "data" / "processed" / "lck.parquet"
 
+# Historic league codes folded into their modern equivalents BEFORE filtering:
+# OGN = OnGameNet Champions Korea (what OE calls LCK 2015),
+# CK  = Challengers Korea 2016-2020 (predecessor of LCK Challengers).
+LEAGUE_RENAMES = {"OGN": "LCK", "CK": "LCKC"}
+
 # Leagues kept. Domestic Korea + international events LCK teams attend.
 DOMESTIC_LEAGUES = {"LCK", "LCKC", "KeSPA"}  # LCKC = LCK Challengers League
 INTERNATIONAL_LEAGUES = {"MSI", "WLDs", "WCS", "IEM", "Rift Rivals", "ASE", "EWC",
-                         "FST"}  # FST = First Stand (2025+)
+                         "FST",   # First Stand (2025+)
+                         "MSC"}   # Mid-Season Cup (2020)
 KEEP_LEAGUES = DOMESTIC_LEAGUES | INTERNATIONAL_LEAGUES
 
 # Dashboard scope is 2015+; a stray 2014 file in data/raw/ must not leak in.
@@ -88,6 +95,13 @@ def load_raw() -> pd.DataFrame:
         print(f"  reading {path.name} ...")
         df = _read_one(path)
         if df is not None and len(df):
+            # Which yearly OE file a row came from. NOT the same as the data
+            # year: a file can hold games spilling into January of the next
+            # year (e.g. KeSPA Cup 2025 rows carry year=2026 in the 2025
+            # file). Incremental updates replace rows by srcyear, so rows
+            # from files that were not re-downloaded are never lost.
+            m = re.match(r"(20\d\d)_", path.name)
+            df["srcyear"] = int(m.group(1)) if m else pd.NA
             frames.append(df)
     if not frames:
         raise SystemExit("No readable rows in data/raw/.")
@@ -99,6 +113,8 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
     if "league" not in df.columns:
         raise SystemExit("Input is missing the 'league' column - not Oracle's Elixir data?")
 
+    df = df.copy()
+    df["league"] = df["league"].replace(LEAGUE_RENAMES)
     df = df[df["league"].isin(KEEP_LEAGUES)].copy()
 
     # Player rows only (drop the 2 per-game 'team' summary rows).
@@ -111,6 +127,17 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
             df[col] = pd.to_numeric(df[col], errors="coerce")
         else:
             df[col] = pd.NA
+
+    # Early OE files fill some unmeasured stats with 0 instead of blank
+    # (e.g. visionscore / damagemitigatedperminute in 2015). A stat column
+    # that is zero for an ENTIRE year is unmeasured, not zero -> missing.
+    if "year" in df.columns:
+        for col in NUMERIC_COLS:
+            s = pd.to_numeric(df[col], errors="coerce")
+            per_year = s.abs().groupby(df["year"]).transform("max")
+            all_zero = per_year.eq(0) & s.notna()
+            if all_zero.any():
+                df.loc[all_zero, col] = pd.NA
 
     if "date" in df.columns:
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
@@ -137,6 +164,8 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
 
     keep = [c for c in META_COLS + NUMERIC_COLS if c in df.columns]
     keep += ["split_label", "round_label", "is_international"]
+    if "srcyear" in df.columns:
+        keep.append("srcyear")
     df = df[keep].reset_index(drop=True)
 
     # Drop rows with no usable identity.

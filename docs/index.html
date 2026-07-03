@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LCK 선수 통계</title>
+<meta name="description" content="LCK 프로 선수 통계 — 년도·시즌·라운드·팀·포지션·국제대회별 리더보드, 선수 상세, 팀 승률 (2015~현재)">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230b0b0d'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='%23c8aa6e' font-family='Arial' font-weight='bold'>L</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">LCK</span>
+    <span class="brand-sub">선수 통계</span>
+  </div>
+  <div class="top-meta" id="topMeta">데이터 로딩 중…</div>
+  <button class="filter-toggle" id="filterToggle" aria-label="필터 열기">☰ 필터</button>
+</header>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar">
+    <h2 class="side-title">필터</h2>
+
+    <label class="switch-row">
+      <input type="checkbox" id="fLckOnly" checked>
+      <span class="switch"></span>
+      <span class="switch-label">LCK 소속 팀만</span>
+    </label>
+
+    <div id="msYear"></div>
+    <div id="msLeague"></div>
+    <div id="msSplit"></div>
+    <div id="msRound"></div>
+    <div id="msPos"></div>
+    <div id="msTeam"></div>
+
+    <div class="field">
+      <label for="fMinGames">최소 경기수: <b id="minGamesVal">5</b></label>
+      <input type="range" id="fMinGames" min="1" max="50" value="5">
+    </div>
+
+    <details class="adv">
+      <summary>고급 필터</summary>
+      <div id="msPatch"></div>
+      <div id="msChamp"></div>
+      <label class="switch-row">
+        <input type="checkbox" id="fCompleteOnly">
+        <span class="switch"></span>
+        <span class="switch-label">완전한 데이터만
+          <span class="hint" title="Oracle's Elixir가 partial로 표시한 경기(일부 지표 결측, 주로 @15 골드차 등)를 제외합니다">?</span>
+        </span>
+      </label>
+    </details>
+
+    <details class="adv">
+      <summary>표시 지표</summary>
+      <div id="msMetrics"></div>
+    </details>
+
+    <button class="btn ghost" id="btnReset">필터 초기화</button>
+  </aside>
+
+  <main class="main">
+    <div class="summary-cards" id="summaryCards"></div>
+
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="lb">선수 리더보드</button>
+      <button class="tab" data-tab="detail">선수 상세</button>
+      <button class="tab" data-tab="team">팀</button>
+    </nav>
+
+    <section class="pane active" id="pane-lb">
+      <div class="pane-head">
+        <p class="note" id="lbNote"></p>
+        <button class="btn" id="btnCsv">CSV 내려받기</button>
+      </div>
+      <p class="note dim" id="skNote" hidden>
+        솔킬: gol.gg 기준(어시 없는 단독 킬). <b>연·리그 단위 집계</b>라 라운드·포지션·팀
+        필터와 무관하게 해당 연도·리그 전체 값입니다. MSI 2024는 gol.gg 미제공.
+      </p>
+      <div class="table-wrap" id="lbWrap"></div>
+    </section>
+
+    <section class="pane" id="pane-detail">
+      <div class="detail-pick">
+        <div class="player-search">
+          <input type="text" id="playerSearch" placeholder="선수 검색…" autocomplete="off">
+          <div class="player-list" id="playerList" hidden></div>
+        </div>
+        <select id="chartMetric" class="select"></select>
+      </div>
+      <div id="detailBody"></div>
+    </section>
+
+    <section class="pane" id="pane-team">
+      <div class="table-wrap" id="teamWrap"></div>
+      <div class="team-bars" id="teamBars"></div>
+    </section>
+
+    <footer class="foot">
+      데이터 출처: <a href="https://oracleselixir.com" target="_blank" rel="noopener">Oracle's Elixir</a>
+      (비상업적 사용, 일부 Leaguepedia CC-BY-SA 3.0) · 솔킬:
+      <a href="https://gol.gg" target="_blank" rel="noopener">gol.gg</a> ·
+      개인·비상업 프로젝트 ·
+      <a href="https://github.com/PsyproLEE/lck-statics" target="_blank" rel="noopener">GitHub</a>
+    </footer>
+  </main>
+</div>
+
+<div class="loading" id="loading"><div class="spin"></div><p>데이터 로딩 중…</p></div>
+
+<script src="app.js"></script>
+</body>
+</html>

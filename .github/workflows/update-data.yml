@@ -40,11 +40,14 @@ jobs:
         continue-on-error: true
         run: python src/scrape_golgg.py --no-cache
 
+      - name: Export web data (GitHub Pages front-end)
+        run: python src/export_web.py
+
       - name: Commit and push if data changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/processed/lck.parquet data/processed/solokills.parquet
+          git add data/processed/lck.parquet data/processed/solokills.parquet docs/data
           if git diff --cached --quiet; then
             echo "No data changes."
           else

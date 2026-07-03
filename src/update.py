@@ -107,7 +107,14 @@ def merge_years(new_frames: list[pd.DataFrame], years: list[int]) -> pd.DataFram
     fresh = ingest.clean(fresh)
     if OUT_PATH.exists():
         old = pd.read_parquet(OUT_PATH)
-        old = old[~old["year"].isin(years)]
+        # Replace by SOURCE FILE year, not data year: a yearly OE file can
+        # hold rows whose `year` is the following January (e.g. KeSPA Cup),
+        # and dropping by data year would silently delete those rows when
+        # their source file wasn't part of this refresh.
+        if "srcyear" in old.columns:
+            old = old[~old["srcyear"].isin(years)]
+        else:  # legacy parquet without srcyear
+            old = old[~old["year"].isin(years)]
         merged = pd.concat([old, fresh], ignore_index=True, sort=False)
     else:
         print("  (no existing parquet - result will cover downloaded years only)")
@@ -139,6 +146,7 @@ def main() -> None:
         fid, fname = files[y]
         path = download_year(y, fid, fname)
         df = pd.read_csv(path, low_memory=False)
+        df["srcyear"] = y
         frames.append(df)
         done.append(y)
     if not frames:
