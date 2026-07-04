@@ -167,11 +167,13 @@ node tests/parity/check.mjs
 
 ## 라이선스 / 출처 표기
 
-개인·비상업 용도. 출처 표기: *Data courtesy of Oracle's Elixir
-(oracleselixir.com)*, 솔킬은 *gol.gg (Games of Legends)*.
+개인·비상업 용도. 각 소스의 이용 조건·robots 준수·원문 인용·상업 전환
+체크리스트는 **[DATA_SOURCES.md](DATA_SOURCES.md)** 참고 (2026-07 조사).
 
-- gol.gg는 공식 API가 없어 HTML 스크랩 — 저용량(토너먼트당 1페이지)·캐시·요청
-  간격 준수로 정중하게 수집하며 개인·비상업 한정. 사이트 구조 변경 시 깨질 수
+- 출처 표기: *Data courtesy of Oracle's Elixir (oracleselixir.com)* (일부
+  Leaguepedia CC BY-SA 3.0), 솔킬은 *gol.gg (Games of Legends)*.
+- gol.gg는 공식 API가 없어 HTML 스크랩 — robots.txt 허용 경로만, 저용량
+  (토너먼트당 1페이지)·캐시·1.5초 간격으로 수집. 사이트 구조 변경 시 깨질 수
   있음(파서는 누락을 건너뛰고 보고).
-- 상업적 사용으로 전환 시 Oracle's Elixir → Leaguepedia API 기반으로 교체,
-  gol.gg 스크랩은 사용 조건 재확인 필요.
+- 사이트 하단에 Riot Games 팬 콘텐츠 정책 면책 문구 게시. 상업 전환 시
+  DATA_SOURCES.md의 체크리스트(OE 운영자 문의 등)를 먼저 이행할 것.
