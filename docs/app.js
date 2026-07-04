@@ -431,15 +431,19 @@ function champGroupsOf(pidStr) {
   return arr;
 }
 
-function lineChartSVG(labels, values, metric) {
-  const W = 920, H = 300, padL = 46, padR = 16, padT = 24, padB = 64;
+function lineChartSVG(labels, fullLabels, values, metric) {
+  // Fixed pixel scale (never stretched to the container), so text stays a
+  // constant 10px; long careers scroll horizontally instead of squeezing.
+  const n = labels.length;
   const pts = values.map((v, i) => ({ v, i })).filter(p => p.v != null);
   if (!pts.length) return '<div class="empty">데이터 없음</div>';
+  const padL = 48, padR = 20, padT = 24, padB = 58, H = 280, per = 58;
+  const W = Math.max(560, padL + padR + (n - 1) * per);
   const vmin = Math.min(...pts.map(p => p.v)), vmax = Math.max(...pts.map(p => p.v));
   const span = (vmax - vmin) || 1;
   const y = v => padT + (H - padT - padB) * (1 - (v - vmin + span * .08) / (span * 1.16));
-  const x = i => labels.length === 1 ? W / 2 :
-    padL + (W - padL - padR) * (i / (labels.length - 1));
+  const x = i => n === 1 ? padL + (W - padL - padR) / 2 :
+    padL + (W - padL - padR) * (i / (n - 1));
   let grid = '', gtxt = '';
   for (let g = 0; g <= 3; g++) {
     const gv = vmin + span * g / 3;
@@ -447,15 +451,24 @@ function lineChartSVG(labels, values, metric) {
     gtxt += `<text class="c-txt" x="${padL - 6}" y="${y(gv) + 3}" text-anchor="end">${fmt(gv, DEC[metric] ?? 1)}</text>`;
   }
   const poly = pts.map(p => `${x(p.i).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
+  // Value labels: every point when readable; min/max/last on long careers.
+  let valIdx = null;
+  if (n > 30) {
+    valIdx = new Set([pts[pts.length - 1].i]);
+    let lo = pts[0], hi = pts[0];
+    for (const p of pts) { if (p.v < lo.v) lo = p; if (p.v > hi.v) hi = p; }
+    valIdx.add(lo.i); valIdx.add(hi.i);
+  }
   const dots = pts.map(p =>
-    `<circle class="c-dot" cx="${x(p.i).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="3.4"><title>${esc(labels[p.i])}: ${fmt(p.v, DEC[metric] ?? 2)}</title></circle>` +
-    `<text class="c-val" x="${x(p.i).toFixed(1)}" y="${(y(p.v) - 8).toFixed(1)}" text-anchor="middle">${fmt(p.v, DEC[metric] ?? 1)}</text>`
+    `<circle class="c-dot" cx="${x(p.i).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="3.2"><title>${esc(fullLabels[p.i])}: ${fmt(p.v, DEC[metric] ?? 2)}</title></circle>` +
+    ((valIdx && !valIdx.has(p.i)) ? '' :
+      `<text class="c-val" x="${x(p.i).toFixed(1)}" y="${(y(p.v) - 8).toFixed(1)}" text-anchor="middle">${fmt(p.v, DEC[metric] ?? 1)}</text>`)
   ).join('');
-  const step = Math.ceil(labels.length / 16);
+  const step = n > 60 ? 2 : 1;
   const xlab = labels.map((lb, i) => (i % step) ? '' :
-    `<text class="c-txt" x="${x(i).toFixed(1)}" y="${H - padB + 14}" text-anchor="end" transform="rotate(-32 ${x(i).toFixed(1)} ${H - padB + 14})">${esc(lb)}</text>`
+    `<text class="c-txt" x="${x(i).toFixed(1)}" y="${H - padB + 14}" text-anchor="end" transform="rotate(-35 ${x(i).toFixed(1)} ${H - padB + 14})">${esc(lb)}</text>`
   ).join('');
-  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">` +
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">` +
     grid + gtxt + `<polyline class="c-line" points="${poly}"/>` + dots + xlab + '</svg>';
 }
 
@@ -486,7 +499,14 @@ function renderDetail() {
   const champs = champGroupsOf(pid);
   const mets = visibleMetrics();
 
-  const labels = seas.map(s => `${s.year} ${s.split} · ${s.round}`);
+  // Short x-axis labels ("'23 Spring PO", "'24 MSI"); full text in tooltips.
+  const shortLabel = s => {
+    const sp = s.split === '기타/국제' ? s.league : s.split;
+    const po = s.round === '플레이오프' ? ' PO' : '';
+    return `'${String(s.year).slice(2)} ${sp}${po}`;
+  };
+  const labels = seas.map(shortLabel);
+  const fullLabels = seas.map(s => `${s.year} ${s.split} · ${s.round} (${s.league})`);
   const values = seas.map(s => s.m[state.chartMetric]);
   const seasRows = seas.map(s => ({
     '년도': s.year, '시즌': s.split, '라운드': s.round, '대회': s.league, ...s.m,
@@ -495,10 +515,13 @@ function renderDetail() {
 
   body.innerHTML =
     `<h3 class="detail-h"><b>${esc(name)}</b> — 시즌별 추이 <span style="color:var(--muted);font-size:13px;font-weight:400">(${state.chartMetric})</span></h3>` +
-    `<div class="chart-box">${lineChartSVG(labels, values, state.chartMetric)}</div>` +
+    `<div class="chart-box"><div class="chart-scroll">${lineChartSVG(labels, fullLabels, values, state.chartMetric)}</div></div>` +
     metricTable(['년도', '시즌', '라운드', '대회'], seasRows, mets) +
     `<h3 class="detail-h"><b>${esc(name)}</b> — 챔피언 폭 <span style="color:var(--muted);font-size:13px;font-weight:400">(${champs.length}챔피언)</span></h3>` +
     metricTable(['챔피언'], champRows, mets);
+  // show the most recent seasons first on long careers
+  const sc = body.querySelector('.chart-scroll');
+  if (sc) sc.scrollLeft = sc.scrollWidth;
 }
 
 // ---------------------------------------------------------------- teams

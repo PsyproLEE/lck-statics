@@ -275,7 +275,9 @@ tbody tr.me { background: rgba(200,170,110,.12); }
   background: var(--panel); border: 1px solid var(--border-soft);
   border-radius: var(--radius); padding: 14px 10px 6px; margin-bottom: 16px;
 }
-.chart-box svg { width: 100%; height: auto; display: block; }
+/* fixed pixel scale: text stays 10px, long careers scroll sideways */
+.chart-scroll { overflow-x: auto; }
+.chart-scroll svg { display: block; margin: 0 auto; }
 .c-line { fill: none; stroke: var(--gold); stroke-width: 2; }
 .c-dot { fill: var(--gold-bright); }
 .c-grid { stroke: #232329; stroke-width: 1; }
@@ -346,8 +348,23 @@ tbody tr.me { background: rgba(200,170,110,.12); }
     border-bottom: 1px solid var(--border);
   }
   .sidebar.open { display: block; }
-  .main { padding: 14px; }
-  .summary-cards { grid-template-columns: repeat(2, 1fr); }
+  .main { padding: 12px; }
+  .summary-cards { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .card { padding: 10px 12px; }
+  .card .cv { font-size: 18px; }
+  .tabs {
+    overflow-x: auto; scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { padding: 10px 12px; font-size: 13px; white-space: nowrap; flex: 0 0 auto; }
   .tb-row { grid-template-columns: 110px 1fr 46px; }
   .player-search { width: 100%; }
+  .chart-box { padding: 10px 4px 2px; }
+  .table-wrap { max-height: 64vh; }
+  .pane-head { flex-wrap: wrap; }
+}
+@media (max-width: 640px) {
+  .top-meta { display: none; }
+  .brand-sub { font-size: 13px; letter-spacing: .06em; }
 }
