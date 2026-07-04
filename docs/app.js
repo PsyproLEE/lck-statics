@@ -28,12 +28,15 @@ async function loadAll() {
 }
 
 // ---------------------------------------------------------------- state
+// Casual-friendly default columns; the full 26-metric set is one click away.
+const CORE_METRICS = ['경기수', '승률%', 'KDA', 'K', 'D', 'A', 'DPM', 'KP%'];
+
 const state = {
   lckOnly: true,
   years: null, leagues: new Set(['LCK']), splits: null, rounds: null,
   positions: null, teams: null, patches: null, champs: null,
   completeOnly: false, minGames: 5,
-  metrics: null,
+  metrics: new Set(CORE_METRICS),   // null = all metrics
   sortKey: '경기수', sortDir: -1,
   tab: 'lb', pid: null, chartMetric: 'KDA',
   teamSortKey: '승률%', teamSortDir: -1,
@@ -100,6 +103,7 @@ function stateToURL() {
       : [...sel].map(v => encodeURIComponent(v)).join(','));
   }
   if (state.completeOnly) p.set('co', '1');
+  if (state.metrics === null) p.set('mv', 'all');
   if (state.minGames !== 5) p.set('mg', String(state.minGames));
   if (state.tab !== 'lb') p.set('t', state.tab);
   if (state.tab === 'detail' && state.pid) p.set('p', state.pid);
@@ -119,8 +123,9 @@ function urlToState() {
     state[key] = new Set(numeric ? vals.map(Number) : vals);
   }
   if (p.get('co') === '1') state.completeOnly = true;
+  if (p.get('mv') === 'all') state.metrics = null;
   const mg = parseInt(p.get('mg'), 10);
-  if (mg >= 1 && mg <= 50) state.minGames = mg;
+  if (mg >= 1 && mg <= 150) state.minGames = mg;
   if (TABS.includes(p.get('t'))) state.tab = p.get('t');
   if (p.get('p')) state.pid = p.get('p');
   if (CHART_METRICS.includes(p.get('cm'))) state.chartMetric = p.get('cm');
@@ -231,6 +236,35 @@ function patchSort(a, b) {
 function visibleMetrics() {
   return METRICS.map(m => m[0]).filter(k => !state.metrics || state.metrics.has(k));
 }
+
+// Metrics where a LOW value is the good side (bar direction flips).
+const LOWER_BETTER = new Set(['D', '데스/분', '데스지분%', '피FB%']);
+
+// Per-column rank percentile over the displayed rows -> subtle gold bar in
+// each cell, so relative standing reads at a glance without knowing the stat.
+function colPercentiles(rows, keys) {
+  const out = {};
+  for (const k of keys) {
+    const vals = rows.map(r => r[k]).filter(v => v != null && !Number.isNaN(v))
+      .sort((a, b) => a - b);
+    if (vals.length < 3) { out[k] = null; continue; }
+    out[k] = (v) => {
+      if (v == null || Number.isNaN(v)) return null;
+      let lo = 0, hi = vals.length;
+      while (lo < hi) { const m = (lo + hi) >> 1; if (vals[m] < v) lo = m + 1; else hi = m; }
+      let p = lo / (vals.length - 1);
+      if (p > 1) p = 1;
+      return LOWER_BETTER.has(k) ? 1 - p : p;
+    };
+  }
+  return out;
+}
+
+function pctBarStyle(pf, v) {
+  const p = pf && pf(v);
+  if (p == null) return '';
+  return ` style="background:linear-gradient(90deg,rgba(200,170,110,.16) ${(p * 100).toFixed(0)}%,transparent 0)"`;
+}
 function rowSeason(i) {
   const c = G.cols;
   return `${c.year[i]} ${c.split.d[c.split.i[i]]} · ${c.round.d[c.round.i[i]]}`;
@@ -316,13 +350,15 @@ function renderLeaderboard() {
     $('lbWrap').innerHTML = `<div class="empty">조건을 만족하는 선수가 없습니다. 필터를 완화해 보세요.</div>`;
     return;
   }
+  $('btnMetricsMode').textContent = state.metrics === null ? '핵심 지표만' : '전체 지표 보기';
+  const P = colPercentiles(curLB, mets);
   sortableTable('lbWrap', ['#', '선수', '팀', '포지션', ...mets], ['선수', '팀', '포지션'],
     curLB,
     (r, idx) => {
       const tds = mets.map(k => {
         let cls = '';
         if (k === '승률%' && r[k] != null) cls = r[k] >= 55 ? ' class="pct-hi"' : (r[k] < 45 ? ' class="pct-lo"' : '');
-        return `<td${cls}>${fmt(r[k], DEC[k])}</td>`;
+        return `<td${cls}${pctBarStyle(P[k], r[k])}>${fmt(r[k], DEC[k])}</td>`;
       }).join('');
       return `<tr data-pid="${esc(r._pid)}"><td class="rank">${idx + 1}</td>` +
         `<td class="txt player">${esc(r['선수'])}</td>` +
@@ -565,6 +601,7 @@ function renderChampions() {
     return;
   }
   sortRows(rows, state.champSortKey, state.champSortDir);
+  const P = colPercentiles(rows, CHAMP_COLS.filter(k => k !== '대표선수'));
   sortableTable('champWrap', ['#', '챔피언', ...CHAMP_COLS], ['챔피언', '대표선수'],
     rows,
     (r, idx) => {
@@ -572,7 +609,7 @@ function renderChampions() {
         if (k === '대표선수') return `<td class="txt">${esc(r[k])}</td>`;
         let cls = '';
         if (k === '승률%' && r[k] != null) cls = r[k] >= 55 ? ' class="pct-hi"' : (r[k] < 45 ? ' class="pct-lo"' : '');
-        return `<td${cls}>${fmt(r[k], k === '선수수' ? 0 : DEC[k])}</td>`;
+        return `<td${cls}${pctBarStyle(P[k], r[k])}>${fmt(r[k], k === '선수수' ? 0 : DEC[k])}</td>`;
       }).join('');
       return `<tr><td class="rank">${idx + 1}</td><td class="txt player">${esc(r['챔피언'])}</td>${tds}</tr>`;
     },
@@ -672,21 +709,56 @@ function initControls() {
     $('minGamesVal').textContent = state.minGames;
     scheduleRender();
   };
-  $('btnReset').onclick = () => {
-    Object.assign(state, {
-      lckOnly: true, years: null,
-      leagues: leagues.includes('LCK') ? new Set(['LCK']) : null,
-      splits: null, rounds: null, positions: null, teams: null,
-      patches: null, champs: null, completeOnly: false, minGames: 5,
-      metrics: null, sortKey: '경기수', sortDir: -1,
-    });
-    $('fLckOnly').checked = true;
-    $('fCompleteOnly').checked = false;
-    $('fMinGames').value = 5;
-    $('minGamesVal').textContent = '5';
+  function applyState(patch) {
+    Object.assign(state, patch);
+    $('fLckOnly').checked = state.lckOnly;
+    $('fCompleteOnly').checked = state.completeOnly;
+    $('fMinGames').value = state.minGames;
+    $('minGamesVal').textContent = String(state.minGames);
     Object.values(msInstances).forEach(ms => ms.syncBtn());
+    closeAllMS();
+    scheduleRender();
+  }
+
+  $('btnReset').onclick = () => applyState({
+    lckOnly: true, years: null,
+    leagues: leagues.includes('LCK') ? new Set(['LCK']) : null,
+    splits: null, rounds: null, positions: null, teams: null,
+    patches: null, champs: null, completeOnly: false, minGames: 5,
+    metrics: new Set(CORE_METRICS), sortKey: '경기수', sortDir: -1,
+  });
+
+  $('btnMetricsMode').onclick = () => {
+    state.metrics = state.metrics === null ? new Set(CORE_METRICS) : null;
+    msInstances.metrics.syncBtn();
     scheduleRender();
   };
+
+  // One-click starting points (reuse the filter state, land on a useful view)
+  const nowYear = years[years.length - 1];
+  const PRESETS = [
+    { label: `${nowYear} 시즌`, patch: { years: new Set([nowYear]),
+      leagues: new Set(['LCK']), positions: null, minGames: 5,
+      sortKey: '경기수', sortDir: -1 } },
+    { label: `${nowYear - 1} 시즌`, patch: { years: new Set([nowYear - 1]),
+      leagues: new Set(['LCK']), positions: null, minGames: 5,
+      sortKey: '경기수', sortDir: -1 } },
+    { label: '역대 통산', patch: { years: null, leagues: new Set(['LCK']),
+      positions: null, minGames: 100, sortKey: '경기수', sortDir: -1 } },
+    { label: '국제대회', patch: { years: null,
+      leagues: new Set(['MSI', 'WLDs', 'FST'].filter(l => leagues.includes(l))),
+      positions: null, minGames: 10, sortKey: '경기수', sortDir: -1 } },
+  ];
+  $('presetChips').innerHTML = PRESETS.map((p, i) =>
+    `<button class="chip" data-i="${i}">${esc(p.label)}</button>`).join('');
+  $('presetChips').querySelectorAll('.chip').forEach(b => {
+    b.onclick = () => {
+      applyState({ lckOnly: true, splits: null, rounds: null, teams: null,
+        patches: null, champs: null, completeOnly: false,
+        ...PRESETS[+b.dataset.i].patch });
+      switchTab('lb');
+    };
+  });
 
   $('tabs').querySelectorAll('.tab').forEach(b => {
     b.onclick = () => switchTab(b.dataset.tab);
