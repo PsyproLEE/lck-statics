@@ -625,14 +625,22 @@ function renderChampions() {
 function renderRecords() {
   const c = G.cols;
   const recs = A.buildRecords(G, curRows, 10);
+  const seasonShort = (i) => {
+    const spl = c.split.d[c.split.i[i]];
+    const sp = spl === '기타/국제' ? c.league.d[c.league.i[i]] : spl;
+    const po = c.round.d[c.round.i[i]] === '플레이오프' ? ' PO' : '';
+    return `'${String(c.year[i]).slice(2)} ${sp}${po}`;
+  };
   $('recordsGrid').innerHTML = recs.map(rec => {
     const rows = rec.top.map((h, n) => {
       const i = h.i;
-      return `<tr><td class="rank">${n + 1}</td>` +
+      const full = `${c.name.d[c.name.i[i]]} · ${c.champ.d[c.champ.i[i]]} · ` +
+        `${c.team.d[c.team.i[i]]} · ${rowSeason(i)} (${c.league.d[c.league.i[i]]})`;
+      return `<tr title="${esc(full)}"><td class="rank">${n + 1}</td>` +
         `<td class="txt player">${esc(c.name.d[c.name.i[i]])}</td>` +
         `<td class="txt rc-champ">${esc(c.champ.d[c.champ.i[i]])}</td>` +
         `<td class="txt rc-meta">${esc(c.team.d[c.team.i[i]])}</td>` +
-        `<td class="txt rc-meta">${esc(rowSeason(i))}</td>` +
+        `<td class="txt rc-meta rc-season">${esc(seasonShort(i))}</td>` +
         `<td class="rc-val">${fmt(h.v, rec.dec)}</td></tr>`;
     }).join('');
     return `<div class="rec-card"><h3>${esc(rec.label)}</h3>` +
