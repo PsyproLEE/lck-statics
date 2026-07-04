@@ -256,6 +256,43 @@ tbody tr.me { background: rgba(200,170,110,.12); }
 .pct-hi { color: var(--win); }
 .pct-lo { color: var(--red); }
 
+/* ---------- champion icons & position badges ---------- */
+.champ-ico {
+  width: 22px; height: 22px; border-radius: 5px;
+  vertical-align: middle; margin-right: 7px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+}
+.rec-card .champ-ico { width: 17px; height: 17px; margin-right: 5px; }
+.posb {
+  display: inline-block; padding: 1.5px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; letter-spacing: .02em;
+  color: var(--pc, var(--muted));
+  border: 1px solid color-mix(in srgb, var(--pc, #888) 45%, transparent);
+  background: color-mix(in srgb, var(--pc, #888) 12%, transparent);
+}
+
+/* ---------- player profile header ---------- */
+.player-head {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  background: linear-gradient(135deg, var(--panel) 60%, rgba(200,170,110,.07));
+  border: 1px solid var(--border-soft); border-left: 3px solid var(--gold);
+  border-radius: var(--radius); padding: 16px 20px; margin-bottom: 18px;
+}
+.ph-name { font-size: 24px; font-weight: 900; color: var(--gold-bright); }
+.ph-meta { color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 8px; }
+.ph-chips { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+.ph-chip {
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 12px; text-align: center; min-width: 64px;
+}
+.ph-chip span { display: block; font-size: 10.5px; color: var(--muted); letter-spacing: .06em; }
+.ph-chip b { font-size: 15px; color: var(--gold-bright); font-variant-numeric: tabular-nums; }
+@media (max-width: 900px) {
+  .ph-chips { margin-left: 0; width: 100%; }
+  .ph-chip { flex: 1; min-width: 56px; padding: 5px 6px; }
+}
+
 /* ---------- detail ---------- */
 .detail-pick { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
 .player-search { position: relative; width: 260px; }

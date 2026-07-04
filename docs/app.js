@@ -11,8 +11,47 @@ let G = null;      // games: {n, cols, displayName, nameLow}
 let TG = null;     // teamgames
 let SKMAP = null;  // "namelow|year|league" -> {sk, g}
 let META = null;
+let CHAMPIMG = null; // normalized champion name -> Data Dragon icon URL
 
 const $ = (id) => document.getElementById(id);
+
+// Riot Data Dragon (official static assets). OE champion names match ddragon
+// display names 1:1 (validated 171/171). Site degrades to text if offline.
+async function loadDDragon() {
+  try {
+    const vers = await fetch('https://ddragon.leagueoflegends.com/api/versions.json')
+      .then(r => r.json());
+    const ver = vers[0];
+    const data = await fetch(
+      `https://ddragon.leagueoflegends.com/cdn/${ver}/data/en_US/champion.json`)
+      .then(r => r.json());
+    const map = {};
+    for (const [id, o] of Object.entries(data.data)) {
+      map[o.name.toLowerCase().replace(/[^a-z0-9]/g, '')] =
+        `https://ddragon.leagueoflegends.com/cdn/${ver}/img/champion/${id}.png`;
+    }
+    CHAMPIMG = map;
+  } catch { CHAMPIMG = null; }
+}
+
+function champCell(name) {
+  if (!name) return '';
+  const url = CHAMPIMG && CHAMPIMG[name.toLowerCase().replace(/[^a-z0-9]/g, '')];
+  return (url ? `<img class="champ-ico" src="${url}" alt="" loading="lazy">` : '')
+    + esc(name);
+}
+
+// Position -> Korean label + accent color (badges everywhere positions show)
+const POS_BADGE = {
+  top: ['탑', '#e0715c'], jng: ['정글', '#58b878'], mid: ['미드', '#5c9de0'],
+  bot: ['원딜', '#c8aa6e'], sup: ['서폿', '#a97fd6'],
+};
+function posBadge(p) {
+  const b = POS_BADGE[p];
+  if (!b) return esc(p);
+  return `<span class="posb" style="--pc:${b[1]}">${b[0]}</span>`;
+}
+const posLabel = (p) => POS_BADGE[p] ? POS_BADGE[p][0] : String(p);
 
 async function loadAll() {
   const [g, tg, sk, meta] = await Promise.all([
@@ -20,6 +59,7 @@ async function loadAll() {
     fetch('data/teamgames.json').then(r => r.json()),
     fetch('data/solokills.json').then(r => r.json()).catch(() => []),
     fetch('data/meta.json').then(r => r.json()).catch(() => ({})),
+    loadDDragon(),
   ]);
   G = g; TG = tg; META = meta;
   SKMAP = new Map();
@@ -134,7 +174,7 @@ function urlToState() {
 // ---------------------------------------------------------------- multiselect
 const msInstances = {};
 
-function makeMS(mountId, key, label, options, { searchable = false } = {}) {
+function makeMS(mountId, key, label, options, { searchable = false, format = null } = {}) {
   const mount = $(mountId);
   mount.innerHTML = '';
   mount.className = 'ms';
@@ -196,7 +236,7 @@ function makeMS(mountId, key, label, options, { searchable = false } = {}) {
         syncBtn(); scheduleRender();
       };
       const span = document.createElement('span');
-      span.textContent = String(v);
+      span.textContent = format ? format(v) : String(v);
       row.append(cb, span);
       panel.append(row);
     }
@@ -362,7 +402,7 @@ function renderLeaderboard() {
       }).join('');
       return `<tr data-pid="${esc(r._pid)}"><td class="rank">${idx + 1}</td>` +
         `<td class="txt player">${esc(r['선수'])}</td>` +
-        `<td class="txt">${esc(r['팀'])}</td><td class="txt badge">${esc(r['포지션'])}</td>${tds}</tr>`;
+        `<td class="txt">${esc(r['팀'])}</td><td class="txt">${posBadge(r['포지션'])}</td>${tds}</tr>`;
     },
     { key: state.sortKey, dir: state.sortDir },
     (k, isTxt) => {
@@ -508,14 +548,16 @@ function lineChartSVG(labels, fullLabels, values, metric) {
     grid + gtxt + `<polyline class="c-line" points="${poly}"/>` + dots + xlab + '</svg>';
 }
 
-function metricTable(idCols, rows, mets) {
+function metricTable(idCols, rows, mets, fmtMap = {}) {
   const ths = [...idCols, ...mets].map(h => {
     const cls = idCols.includes(h) ? ' class="txt"' : '';
     const help = METRIC_HELP[h] ? ` title="${esc(METRIC_HELP[h])}"` : '';
     return `<th${cls}${help} style="cursor:default">${esc(h)}</th>`;
   }).join('');
   const body = rows.map(r =>
-    '<tr>' + idCols.map(k => `<td class="txt">${esc(r[k] ?? '')}</td>`).join('') +
+    '<tr>' + idCols.map(k => `<td class="txt">${
+      fmtMap[k] ? fmtMap[k](r[k]) : esc(r[k] ?? '')
+    }</td>`).join('') +
     mets.map(k => `<td>${fmt(r[k], DEC[k])}</td>`).join('') + '</tr>'
   ).join('');
   return `<div class="table-wrap"><table><thead><tr>${ths}</tr></thead><tbody>${body}</tbody></table></div>`;
@@ -535,6 +577,24 @@ function renderDetail() {
   const champs = champGroupsOf(pid);
   const mets = visibleMetrics();
 
+  // profile header: overall stats over the current filter
+  const c = G.cols;
+  const pidCode = c.pid.d.indexOf(pid);
+  const acc = A.newAcc();
+  for (const i of curRows) if (c.pid.i[i] === pidCode) A.accAdd(acc, i, G);
+  const tot = A.accFinish(acc, SKMAP);
+  const headChips = [
+    ['경기', fmt(tot['경기수'], 0)], ['승률', fmt(tot['승률%'], 1) + '%'],
+    ['KDA', fmt(tot['KDA'], 2)], ['DPM', fmt(tot['DPM'], 0)],
+    ['KP%', fmt(tot['KP%'], 1) + '%'],
+  ].map(([k, v]) =>
+    `<div class="ph-chip"><span>${k}</span><b>${v}</b></div>`).join('');
+  const headHtml =
+    `<div class="player-head">` +
+    `<div class="ph-name">${esc(name)}</div>` +
+    `<div class="ph-meta">${esc(A.topOf(acc.teams))} ${posBadge(A.topOf(acc.poss))}</div>` +
+    `<div class="ph-chips">${headChips}</div></div>`;
+
   // Short x-axis labels ("'23 Spring PO", "'24 MSI"); full text in tooltips.
   const shortLabel = s => {
     const sp = s.split === '기타/국제' ? s.league : s.split;
@@ -550,11 +610,12 @@ function renderDetail() {
   const champRows = champs.map(cch => ({ '챔피언': cch.champ, ...cch.m }));
 
   body.innerHTML =
-    `<h3 class="detail-h"><b>${esc(name)}</b> — 시즌별 추이 <span style="color:var(--muted);font-size:13px;font-weight:400">(${state.chartMetric})</span></h3>` +
+    headHtml +
+    `<h3 class="detail-h">시즌별 추이 <span style="color:var(--muted);font-size:13px;font-weight:400">(${state.chartMetric})</span></h3>` +
     `<div class="chart-box"><div class="chart-scroll">${lineChartSVG(labels, fullLabels, values, state.chartMetric)}</div></div>` +
     metricTable(['년도', '시즌', '라운드', '대회'], seasRows, mets) +
-    `<h3 class="detail-h"><b>${esc(name)}</b> — 챔피언 폭 <span style="color:var(--muted);font-size:13px;font-weight:400">(${champs.length}챔피언)</span></h3>` +
-    metricTable(['챔피언'], champRows, mets);
+    `<h3 class="detail-h">챔피언 폭 <span style="color:var(--muted);font-size:13px;font-weight:400">(${champs.length}챔피언)</span></h3>` +
+    metricTable(['챔피언'], champRows, mets, { '챔피언': champCell });
   // show the most recent seasons first on long careers
   const sc = body.querySelector('.chart-scroll');
   if (sc) sc.scrollLeft = sc.scrollWidth;
@@ -611,7 +672,7 @@ function renderChampions() {
         if (k === '승률%' && r[k] != null) cls = r[k] >= 55 ? ' class="pct-hi"' : (r[k] < 45 ? ' class="pct-lo"' : '');
         return `<td${cls}${pctBarStyle(P[k], r[k])}>${fmt(r[k], k === '선수수' ? 0 : DEC[k])}</td>`;
       }).join('');
-      return `<tr><td class="rank">${idx + 1}</td><td class="txt player">${esc(r['챔피언'])}</td>${tds}</tr>`;
+      return `<tr><td class="rank">${idx + 1}</td><td class="txt player">${champCell(r['챔피언'])}</td>${tds}</tr>`;
     },
     { key: state.champSortKey, dir: state.champSortDir },
     (k, isTxt) => {
@@ -638,7 +699,7 @@ function renderRecords() {
         `${c.team.d[c.team.i[i]]} · ${rowSeason(i)} (${c.league.d[c.league.i[i]]})`;
       return `<tr title="${esc(full)}"><td class="rank">${n + 1}</td>` +
         `<td class="txt player">${esc(c.name.d[c.name.i[i]])}</td>` +
-        `<td class="txt rc-champ">${esc(c.champ.d[c.champ.i[i]])}</td>` +
+        `<td class="txt rc-champ">${champCell(c.champ.d[c.champ.i[i]])}</td>` +
         `<td class="txt rc-meta">${esc(c.team.d[c.team.i[i]])}</td>` +
         `<td class="txt rc-meta rc-season">${esc(seasonShort(i))}</td>` +
         `<td class="rc-val">${fmt(h.v, rec.dec)}</td></tr>`;
@@ -690,7 +751,7 @@ function initControls() {
   makeMS('msLeague', 'leagues', '대회 / 리그', leagues);
   makeMS('msSplit', 'splits', '시즌', splits);
   makeMS('msRound', 'rounds', '라운드', rounds);
-  makeMS('msPos', 'positions', '포지션', poss);
+  makeMS('msPos', 'positions', '포지션', poss, { format: posLabel });
   const teamMS = makeMS('msTeam', 'teams', '팀',
     state.lckOnly ? lckTeams : allTeams, { searchable: true });
   makeMS('msPatch', 'patches', '패치', patches, { searchable: true });

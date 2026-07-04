@@ -62,8 +62,11 @@
   > "[Project] was created under Riot Games' 'Legal Jibber Jabber' policy
   > using assets owned by Riot Games. Riot Games does not endorse or sponsor
   > this project."
-- 이 사이트는 Riot의 이미지·에셋을 일절 사용하지 않고(챔피언 초상 등 없음)
-  텍스트 통계만 표시하지만, 관례에 따라 하단에 면책 문구를 게시한다.
+- 이 사이트는 **챔피언 아이콘**을 Riot이 개발자용으로 공식 배포하는
+  [Data Dragon](https://developer.riotgames.com/docs/lol#data-dragon) CDN에서
+  직접 로드한다(재호스팅 없음, lazy 로딩). 팬 콘텐츠 정책상 비상업 프로젝트의
+  에셋 사용에 해당하며, 요구되는 면책 문구를 하단에 게시한다. Riot 로고·
+  트레이드마크는 사용하지 않는다.
 
 ## 데이터 정확성 · 알려진 한계 (교차검증 2026-07)
 
