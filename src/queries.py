@@ -22,12 +22,21 @@ def _norm(name: str) -> str:
     return str(name).strip().casefold()
 
 
-def load_solokills(path: Path = SOLOKILLS) -> pd.DataFrame | None:
+def load_solokills(
+    path: Path = SOLOKILLS, games_source: Path = PARQUET
+) -> pd.DataFrame | None:
     """gol.gg solo kills per (player, year, league). None if not scraped yet.
 
     Solo kills are gol.gg's own derived metric, aggregated per tournament and
     rolled up to (player, year, league) — they do NOT split by round/split,
     so they attach at season-league granularity only.
+
+    Denominator correction: gol.gg omits players with no solo kills from a
+    tournament page, so summing its per-page Games undercounts a player's
+    real game count and inflates 솔킬/G (validated 2026-07: only 66% of
+    (player, year, league) game counts matched OE). Where possible, games_gg
+    is replaced by the exact OE game count for the same (name, year, league);
+    the raw gol.gg figure stays untouched in solokills.parquet.
     """
     if not path.exists():
         return None
@@ -39,6 +48,21 @@ def load_solokills(path: Path = SOLOKILLS) -> pd.DataFrame | None:
         lambda n: _norm(overrides.get(str(n).strip(), n))
     )
     sk["year"] = pd.to_numeric(sk["year"], errors="coerce").astype("Int64")
+    if games_source and games_source.exists():
+        oe = pd.read_parquet(
+            games_source, columns=["playername", "year", "league", "gameid"]
+        )
+        oe["_key"] = oe["playername"].map(_norm)
+        g = (
+            oe.groupby(["_key", "year", "league"])["gameid"].nunique()
+            .rename("games_oe").reset_index()
+        )
+        g["year"] = pd.to_numeric(g["year"], errors="coerce").astype("Int64")
+        sk = sk.merge(g, on=["_key", "year", "league"], how="left")
+        sk["games_gg"] = sk["games_oe"].where(
+            sk["games_oe"].notna(), sk["games_gg"]
+        )
+        sk = sk.drop(columns=["games_oe"])
     return sk
 
 _NUMERIC = [
