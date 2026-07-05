@@ -164,6 +164,11 @@ def _write(path: Path, obj) -> None:
 def main() -> None:
     print("web export -> docs/data/")
     df = q.load_data()
+    # The front-end derives "most recent team" from row order (agg.js
+    # acc.lastTeam), and incremental updates can append refreshed years out
+    # of order — sort by date here so exported order is always chronological.
+    if "date" in df.columns:
+        df = df.sort_values("date", kind="stable").reset_index(drop=True)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     (OUT_DIR.parent / ".nojekyll").touch()
 

@@ -382,6 +382,31 @@ tbody tr.me { background: rgba(200,170,110,.12); }
   .cmp-search { width: 100%; }
 }
 
+/* ---------- roster ---------- */
+.tmore { color: var(--muted); font-size: 11px; }
+tr.team-row { cursor: pointer; }
+.roster-box {
+  margin: 16px 0; border: 1px solid var(--gold-dim);
+  border-radius: var(--radius); background: var(--panel);
+  padding: 12px 14px;
+}
+.roster-head {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 15px; margin-bottom: 10px; color: var(--gold-bright);
+}
+.roster-head .note { flex: 1; }
+.roster-head #btnRosterClose { margin-left: auto; }
+.roster-box .table-wrap { max-height: 54vh; }
+.roster-box td { white-space: normal; }
+.ros-season { color: var(--gold-bright); font-weight: 700; white-space: nowrap; }
+.ros-p {
+  display: inline-block; margin: 1px 6px 1px 0; cursor: pointer;
+  color: var(--text); font-size: 12.5px;
+}
+.ros-p small { color: var(--muted); margin-left: 2px; font-size: 10.5px; }
+.ros-p:hover { color: var(--gold-bright); text-decoration: underline; }
+.ros-p.main { font-weight: 700; }
+
 /* ---------- team bars ---------- */
 .team-bars { margin-top: 18px; display: grid; gap: 7px; }
 .tb-row { display: grid; grid-template-columns: 170px 1fr 52px; align-items: center; gap: 10px; }

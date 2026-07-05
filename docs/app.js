@@ -27,6 +27,19 @@ function teamDot(name) {
   return `<span class="tdot" style="background:${teamColor(name)}"></span>`;
 }
 
+// "most recent team (+ 외 N팀)" cell; hover lists every team with games.
+// esc() is defined below but only called at render time, never at load.
+function teamHistCell(r) {
+  const cur = r['팀'];
+  const hist = r._teams || [];
+  const more = hist.length > 1
+    ? ` <span class="tmore">외 ${hist.length - 1}팀</span>` : '';
+  const tip = hist.length > 1
+    ? ` title="${esc(hist.map(([t, n]) => `${t}: ${n}경기`).join('\n'))}"`
+    : '';
+  return `<span${tip}>${teamDot(cur)}${esc(cur)}${more}</span>`;
+}
+
 // Riot Data Dragon (official static assets). OE champion names match ddragon
 // display names 1:1 (validated 171/171). Site degrades to text if offline.
 async function loadDDragon() {
@@ -93,7 +106,7 @@ const state = {
   metrics: new Set(CORE_METRICS),   // null = all metrics
   sortKey: '경기수', sortDir: -1,
   tab: 'lb', pid: null, chartMetric: 'KDA',
-  cmp: [], cmpMetric: 'KDA',
+  cmp: [], cmpMetric: 'KDA', rosterTeam: null,
   teamSortKey: '승률%', teamSortDir: -1,
   champSortKey: '경기수', champSortDir: -1,
 };
@@ -166,6 +179,7 @@ function stateToURL() {
   if (state.tab === 'detail' && state.pid) p.set('p', state.pid);
   if (state.chartMetric !== 'KDA') p.set('cm', state.chartMetric);
   if (state.cmp.length) p.set('cmp', state.cmp.map(encodeURIComponent).join(','));
+  if (state.rosterTeam) p.set('rt', state.rosterTeam);
   const qs = p.toString();
   history.replaceState(null, '', qs ? '?' + qs : location.pathname);
 }
@@ -190,6 +204,7 @@ function urlToState() {
   if (p.get('cmp')) {
     state.cmp = p.get('cmp').split(',').map(decodeURIComponent).slice(0, 3);
   }
+  if (p.get('rt')) state.rosterTeam = p.get('rt');
 }
 
 // ---------------------------------------------------------------- multiselect
@@ -290,7 +305,8 @@ function fmt(v, nd) {
   return v.toLocaleString('ko-KR', { minimumFractionDigits: nd, maximumFractionDigits: nd });
 }
 function esc(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 function patchSort(a, b) {
   const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
@@ -427,7 +443,7 @@ function renderLeaderboard() {
       }).join('');
       return `<tr data-pid="${esc(r._pid)}"><td class="rank">${idx + 1}</td>` +
         `<td class="txt player">${esc(r['선수'])}</td>` +
-        `<td class="txt">${teamDot(r['팀'])}${esc(r['팀'])}</td><td class="txt">${posBadge(r['포지션'])}</td>${tds}</tr>`;
+        `<td class="txt">${teamHistCell(r)}</td><td class="txt">${posBadge(r['포지션'])}</td>${tds}</tr>`;
     },
     { key: state.sortKey, dir: state.sortDir },
     (k, isTxt) => {
@@ -513,7 +529,10 @@ function seasonalGroups(pidStr) {
   arr.sort((a, b) => (a.year - b.year) ||
     a.split.localeCompare(b.split) || a.round.localeCompare(b.round, 'ko') ||
     a.league.localeCompare(b.league));
-  return arr.map(g => ({ ...g, m: A.accFinish(g.acc, SKMAP) }));
+  return arr.map(g => ({
+    ...g, m: A.accFinish(g.acc, SKMAP),
+    team: A.topOf(g.acc.teams), nTeams: g.acc.teams.size,
+  }));
 }
 
 function champGroupsOf(pidStr) {
@@ -614,11 +633,17 @@ function renderDetail() {
     ['KP%', fmt(tot['KP%'], 1) + '%'],
   ].map(([k, v]) =>
     `<div class="ph-chip"><span>${k}</span><b>${v}</b></div>`).join('');
-  const mainTeam = A.topOf(acc.teams);
+  const mainTeam = acc.lastTeam || A.topOf(acc.teams);
+  const teamsTip = acc.teams.size > 1
+    ? ` title="${esc([...acc.teams.entries()].sort((a, b) => b[1] - a[1])
+        .map(([t, n]) => `${t}: ${n}경기`).join('\n'))}"`
+    : '';
+  const teamsMore = acc.teams.size > 1
+    ? ` <span class="tmore">외 ${acc.teams.size - 1}팀</span>` : '';
   const headHtml =
     `<div class="player-head">` +
     `<div class="ph-name">${esc(name)}</div>` +
-    `<div class="ph-meta">${teamDot(mainTeam)}${esc(mainTeam)} ${posBadge(A.topOf(acc.poss))}` +
+    `<div class="ph-meta"><span${teamsTip}>${teamDot(mainTeam)}${esc(mainTeam)}${teamsMore}</span> ${posBadge(A.topOf(acc.poss))}` +
     ` <button type="button" class="btn ghost slim" id="btnAddCmp">+ 비교</button></div>` +
     `<div class="ph-chips">${headChips}</div></div>`;
 
@@ -632,7 +657,8 @@ function renderDetail() {
   const fullLabels = seas.map(s => `${s.year} ${s.split} · ${s.round} (${s.league})`);
   const values = seas.map(s => s.m[state.chartMetric]);
   const seasRows = seas.map(s => ({
-    '년도': s.year, '시즌': s.split, '라운드': s.round, '대회': s.league, ...s.m,
+    '년도': s.year, '시즌': s.split, '라운드': s.round, '대회': s.league,
+    '팀': s.team + (s.nTeams > 1 ? ` 외 ${s.nTeams - 1}` : ''), ...s.m,
   }));
   const champRows = champs.map(cch => ({ '챔피언': cch.champ, ...cch.m }));
 
@@ -640,7 +666,8 @@ function renderDetail() {
     headHtml +
     `<h3 class="detail-h">시즌별 추이 <span style="color:var(--muted);font-size:13px;font-weight:400">(${state.chartMetric})</span></h3>` +
     `<div class="chart-box"><div class="chart-scroll">${lineChartSVG(labels, fullLabels, values, state.chartMetric)}</div></div>` +
-    metricTable(['년도', '시즌', '라운드', '대회'], seasRows, mets) +
+    metricTable(['년도', '시즌', '라운드', '대회', '팀'], seasRows, mets,
+      { '팀': v => teamDot(String(v).replace(/ 외 \d+$/, '')) + esc(v) }) +
     `<h3 class="detail-h">챔피언 폭 <span style="color:var(--muted);font-size:13px;font-weight:400">(${champs.length}챔피언)</span></h3>` +
     metricTable(['챔피언'], champRows, mets, { '챔피언': champCell });
   // show the most recent seasons first on long careers
@@ -849,12 +876,14 @@ function renderTeams() {
   if (!rows.length) {
     $('teamWrap').innerHTML = '<div class="empty">조건을 만족하는 팀이 없습니다.</div>';
     $('teamBars').innerHTML = '';
+    renderRoster();
     return;
   }
   sortRows(rows, state.teamSortKey, state.teamSortDir);
   sortableTable('teamWrap', ['팀', '경기수', '승', '승률%', '블루승률%', '레드승률%'], ['팀'],
     rows,
-    r => `<tr><td class="txt player">${teamDot(r['팀'])}${esc(r['팀'])}</td>` +
+    r => `<tr class="team-row${r['팀'] === state.rosterTeam ? ' me' : ''}" data-team="${esc(r['팀'])}">` +
+      `<td class="txt player">${teamDot(r['팀'])}${esc(r['팀'])}</td>` +
       ['경기수', '승', '승률%', '블루승률%', '레드승률%'].map(cc =>
         `<td>${fmt(r[cc], cc === '경기수' || cc === '승' ? 0 : 1)}</td>`).join('') + '</tr>',
     { key: state.teamSortKey, dir: state.teamSortDir },
@@ -863,6 +892,16 @@ function renderTeams() {
       else { state.teamSortKey = k; state.teamSortDir = isTxt ? 1 : -1; }
       renderTeams();
     });
+  $('teamWrap').querySelectorAll('tr.team-row').forEach(tr => {
+    tr.onclick = () => {
+      state.rosterTeam = tr.dataset.team === state.rosterTeam ? null : tr.dataset.team;
+      renderRoster();
+      renderTeams();
+      stateToURL();
+      if (state.rosterTeam) $('rosterBox').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    };
+  });
+  renderRoster();
   const byWr = [...rows].sort((a, b) => b['승률%'] - a['승률%']);
   $('teamBars').innerHTML = byWr.map(r => {
     const col = teamColor(r['팀']);
@@ -870,6 +909,83 @@ function renderTeams() {
       `<div class="tb-track"><div class="tb-fill" style="width:${r['승률%'].toFixed(1)}%;background:linear-gradient(90deg,color-mix(in srgb,${col} 45%,#333),${col})"></div></div>` +
       `<div class="tb-val">${r['승률%'].toFixed(1)}%</div></div>`;
   }).join('');
+}
+
+// ---------------------------------------------------------------- roster
+const POS_ORDER = ['top', 'jng', 'mid', 'bot', 'sup'];
+
+function buildRoster(team) {
+  const c = G.cols;
+  const code = c.team.d.indexOf(team);
+  if (code < 0) return [];
+  const seasons = new Map(); // "year|split" -> {year, split, players: Map(pidCode -> {games, pos Map})}
+  for (const i of curRows) {
+    if (c.team.i[i] !== code) continue;
+    const key = `${c.year[i]}|${c.split.d[c.split.i[i]]}`;
+    let s = seasons.get(key);
+    if (!s) {
+      s = { year: c.year[i], split: c.split.d[c.split.i[i]], players: new Map() };
+      seasons.set(key, s);
+    }
+    const p = c.pid.i[i];
+    let pl = s.players.get(p);
+    if (!pl) { pl = { games: 0, pos: new Map() }; s.players.set(p, pl); }
+    pl.games++;
+    const ps = c.pos.d[c.pos.i[i]];
+    pl.pos.set(ps, (pl.pos.get(ps) || 0) + 1);
+  }
+  const arr = [...seasons.values()]
+    .sort((a, b) => (b.year - a.year) || a.split.localeCompare(b.split));
+  return arr.map(s => {
+    const byPos = { top: [], jng: [], mid: [], bot: [], sup: [], etc: [] };
+    for (const [pcode, pl] of s.players) {
+      const pidStr = c.pid.d[pcode];
+      const slot = byPos[A.topOf(pl.pos)] || byPos.etc;
+      slot.push({ pid: pidStr, name: G.displayName[pidStr] || '?', games: pl.games });
+    }
+    for (const k of Object.keys(byPos)) byPos[k].sort((a, b) => b.games - a.games);
+    return { year: s.year, split: s.split, byPos };
+  });
+}
+
+function renderRoster() {
+  const box = $('rosterBox');
+  if (!state.rosterTeam) { box.innerHTML = ''; return; }
+  const team = state.rosterTeam;
+  const seasons = buildRoster(team);
+  const head = `<div class="roster-head">${teamDot(team)}<b>${esc(team)}</b> 시즌별 로스터` +
+    ` <span class="note dim">(현재 필터 기준 · 괄호는 출전 경기수, 첫 번째가 주전)</span>` +
+    `<button type="button" class="btn ghost slim" id="btnRosterClose">닫기 ×</button></div>`;
+  if (!seasons.length) {
+    box.innerHTML = `<div class="roster-box">${head}<div class="empty">현재 필터에 이 팀의 경기가 없습니다.</div></div>`;
+  } else {
+    const ths = ['시즌', ...POS_ORDER.map(p => posLabel(p))].map((h, i) =>
+      `<th class="${i === 0 ? 'txt' : 'txt'}" style="cursor:default">${h}</th>`).join('');
+    const rows = seasons.map(s => {
+      const cells = POS_ORDER.map(p => {
+        const list = s.byPos[p];
+        if (!list.length) return '<td class="txt">–</td>';
+        const html = list.map((pl, i) =>
+          `<span class="ros-p${i === 0 ? ' main' : ''}" data-pid="${esc(pl.pid)}">${esc(pl.name)}<small>(${pl.games})</small></span>`
+        ).join(' ');
+        return `<td class="txt">${html}</td>`;
+      }).join('');
+      const etc = s.byPos.etc.length
+        ? ` <span class="note dim">+${s.byPos.etc.length}</span>` : '';
+      return `<tr><td class="txt ros-season">${s.year} ${esc(s.split)}${etc}</td>${cells}</tr>`;
+    }).join('');
+    box.innerHTML = `<div class="roster-box">${head}` +
+      `<div class="table-wrap"><table><thead><tr>${ths}</tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  }
+  $('btnRosterClose').onclick = () => {
+    state.rosterTeam = null;
+    renderRoster();
+    renderTeams();   // clear selected-row highlight
+    stateToURL();
+  };
+  box.querySelectorAll('.ros-p').forEach(el => {
+    el.onclick = () => { selectPlayer(el.dataset.pid); switchTab('detail'); };
+  });
 }
 
 // ---------------------------------------------------------------- champions

@@ -93,6 +93,9 @@
     if (ch) acc.champs.add(ch);
     const tm = c.team.d[c.team.i[i]];
     acc.teams.set(tm, (acc.teams.get(tm) || 0) + 1);
+    // rows arrive in (roughly) chronological order, so the last one wins:
+    // used to show a player's most RECENT team when the filter spans moves
+    acc.lastTeam = tm;
     const ps = c.pos.d[c.pos.i[i]];
     acc.poss.set(ps, (acc.poss.get(ps) || 0) + 1);
     acc.skKeys.add(`${data.nameLow[c.name.i[i]]}|${c.year[i]}|${c.league.d[c.league.i[i]]}`);
@@ -164,9 +167,10 @@
       const pidStr = c.pid.d[pidCode];
       const m = accFinish(acc, skmap);
       m['선수'] = data.displayName[pidStr] || topOf(acc.teams);
-      m['팀'] = topOf(acc.teams);
+      m['팀'] = acc.lastTeam || topOf(acc.teams);
       m['포지션'] = topOf(acc.poss);
       m._pid = pidStr;
+      m._teams = [...acc.teams.entries()].sort((a, b) => b[1] - a[1]);
       out.push(m);
     }
     return out;
