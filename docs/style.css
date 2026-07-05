@@ -428,25 +428,27 @@ tr.team-row { cursor: pointer; }
   margin: 0 0 8px; font-size: 13.5px; font-weight: 800;
   color: var(--gold); letter-spacing: .03em;
 }
-/* fixed layout: the value column NEVER gets pushed out — long team/champion
-   names ellipsize instead (full text in the row tooltip) */
+/* fixed layout: the value column NEVER gets pushed out. Columns are
+   rank | player | champion icon | season | value — team + full champion
+   name live in the row tooltip. */
 .rec-card table { width: 100%; font-size: 12.5px; table-layout: fixed; }
 .rec-card td {
   padding: 4px 6px; border-bottom: 1px solid var(--border-soft);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .rec-card tr:last-child td { border-bottom: 0; }
-.rec-card td.rank { width: 20px; }
-.rec-card .rc-champ { color: var(--muted); width: 20%; }
-.rec-card .rc-meta { color: var(--muted); font-size: 11.5px; width: 24%; }
-.rec-card .rc-season { width: 21%; }
+.rec-card td.rank { width: 26px; }
+.rec-card .rc-champ {
+  color: var(--muted); width: 30px; text-align: center; font-size: 10.5px;
+}
+.rec-card .rc-champ .champ-ico { margin-right: 0; }
+.rec-card .rc-season { color: var(--muted); font-size: 11.5px; width: 97px; }
 .rec-card .rc-val {
-  color: var(--gold-bright); font-weight: 800; width: 58px;
+  color: var(--gold-bright); font-weight: 800; width: 60px;
   text-align: right; font-variant-numeric: tabular-nums;
 }
 @media (max-width: 900px) {
   .records-grid { grid-template-columns: 1fr; }
-  .rec-card .rc-meta { display: none; }
 }
 
 /* ---------- misc ---------- */

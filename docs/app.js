@@ -66,6 +66,15 @@ function champCell(name) {
     + esc(name);
 }
 
+// icon only (name in tooltip) — for tight layouts like the records cards
+function champIcon(name) {
+  if (!name) return '';
+  const url = CHAMPIMG && CHAMPIMG[name.toLowerCase().replace(/[^a-z0-9]/g, '')];
+  return url
+    ? `<img class="champ-ico" src="${url}" alt="${esc(name)}" title="${esc(name)}" loading="lazy">`
+    : `<span title="${esc(name)}">${esc(name.slice(0, 6))}</span>`;
+}
+
 // Position -> Korean label + accent color (badges everywhere positions show)
 const POS_BADGE = {
   top: ['탑', '#e0715c'], jng: ['정글', '#58b878'], mid: ['미드', '#5c9de0'],
@@ -1027,10 +1036,13 @@ function renderRecords() {
   const c = G.cols;
   const recs = A.buildRecords(G, curRows, 10);
   const seasonShort = (i) => {
+    const yy = `'${String(c.year[i]).slice(2)}`;
+    const rd = c.round.d[c.round.i[i]];
+    if (rd === '승강전') return `${yy} 승강전`;
     const spl = c.split.d[c.split.i[i]];
-    const sp = spl === '기타/국제' ? c.league.d[c.league.i[i]] : spl;
-    const po = c.round.d[c.round.i[i]] === '플레이오프' ? ' PO' : '';
-    return `'${String(c.year[i]).slice(2)} ${sp}${po}`;
+    let sp = spl === '기타/국제' ? c.league.d[c.league.i[i]] : spl;
+    sp = sp.replace('Rounds ', 'R').replace('Season ', '');
+    return `${yy} ${sp}${rd === '플레이오프' ? ' PO' : ''}`;
   };
   $('recordsGrid').innerHTML = recs.map(rec => {
     const rows = rec.top.map((h, n) => {
@@ -1039,9 +1051,8 @@ function renderRecords() {
         `${c.team.d[c.team.i[i]]} · ${rowSeason(i)} (${c.league.d[c.league.i[i]]})`;
       return `<tr title="${esc(full)}"><td class="rank">${n + 1}</td>` +
         `<td class="txt player">${esc(c.name.d[c.name.i[i]])}</td>` +
-        `<td class="txt rc-champ">${champCell(c.champ.d[c.champ.i[i]])}</td>` +
-        `<td class="txt rc-meta">${esc(c.team.d[c.team.i[i]])}</td>` +
-        `<td class="txt rc-meta rc-season">${esc(seasonShort(i))}</td>` +
+        `<td class="rc-champ">${champIcon(c.champ.d[c.champ.i[i]])}</td>` +
+        `<td class="txt rc-season">${esc(seasonShort(i))}</td>` +
         `<td class="rc-val">${fmt(h.v, rec.dec)}</td></tr>`;
     }).join('');
     return `<div class="rec-card"><h3>${esc(rec.label)}</h3>` +
