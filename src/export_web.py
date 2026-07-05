@@ -183,6 +183,10 @@ def main() -> None:
         "years": [int(yrs.min()), int(yrs.max())],
     })
 
+    # keep asset cache-busting hashes fresh on every deploy
+    import stamp_assets
+    stamp_assets.stamp()
+
 
 if __name__ == "__main__":
     main()
