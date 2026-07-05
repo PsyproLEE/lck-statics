@@ -1047,17 +1047,20 @@ function renderRecords() {
   $('recordsGrid').innerHTML = recs.map(rec => {
     const rows = rec.top.map((h, n) => {
       const i = h.i;
-      const full = `${c.name.d[c.name.i[i]]} · ${c.champ.d[c.champ.i[i]]} · ` +
-        `${c.team.d[c.team.i[i]]} · ${rowSeason(i)} (${c.league.d[c.league.i[i]]})`;
-      return `<tr title="${esc(full)}"><td class="rank">${n + 1}</td>` +
-        `<td class="txt player">${esc(c.name.d[c.name.i[i]])}</td>` +
-        `<td class="rc-champ">${champIcon(c.champ.d[c.champ.i[i]])}</td>` +
-        `<td class="txt rc-season">${esc(seasonShort(i))}</td>` +
-        `<td class="rc-val">${fmt(h.v, rec.dec)}</td></tr>`;
+      const champ = c.champ.d[c.champ.i[i]];
+      const team = c.team.d[c.team.i[i]];
+      return `<li class="rec-row">` +
+        `<span class="rec-rank">${n + 1}</span>` +
+        `<div class="rec-main">` +
+        `<div class="rec-l1"><span class="rec-player">${esc(c.name.d[c.name.i[i]])}</span>` +
+        `<span class="rec-val">${fmt(h.v, rec.dec)}</span></div>` +
+        `<div class="rec-l2">${champCell(champ)}<span class="rec-sep">·</span>` +
+        `${teamDot(team)}${esc(team)}<span class="rec-sep">·</span>${esc(seasonShort(i))}</div>` +
+        `</div></li>`;
     }).join('');
     return `<div class="rec-card"><h3>${esc(rec.label)}</h3>` +
       (rec.top.length
-        ? `<table><tbody>${rows}</tbody></table>`
+        ? `<ul class="rec-list">${rows}</ul>`
         : '<div class="empty">데이터 없음</div>') +
       `</div>`;
   }).join('');
