@@ -12,8 +12,20 @@ let TG = null;     // teamgames
 let SKMAP = null;  // "namelow|year|league" -> {sk, g}
 let META = null;
 let CHAMPIMG = null; // normalized champion name -> Data Dragon icon URL
+let TEAMCOLORS = {}; // teamname -> brand accent hex (docs/team_colors.json)
 
 const $ = (id) => document.getElementById(id);
+
+function teamColor(name) {
+  if (TEAMCOLORS[name]) return TEAMCOLORS[name];
+  // deterministic pastel fallback for unmapped teams
+  let h = 0;
+  for (const ch of String(name)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return `hsl(${h % 360} 45% 62%)`;
+}
+function teamDot(name) {
+  return `<span class="tdot" style="background:${teamColor(name)}"></span>`;
+}
 
 // Riot Data Dragon (official static assets). OE champion names match ddragon
 // display names 1:1 (validated 171/171). Site degrades to text if offline.
@@ -54,13 +66,15 @@ function posBadge(p) {
 const posLabel = (p) => POS_BADGE[p] ? POS_BADGE[p][0] : String(p);
 
 async function loadAll() {
-  const [g, tg, sk, meta] = await Promise.all([
+  const [g, tg, sk, meta, tc] = await Promise.all([
     fetch('data/games.json').then(r => r.json()),
     fetch('data/teamgames.json').then(r => r.json()),
     fetch('data/solokills.json').then(r => r.json()).catch(() => []),
     fetch('data/meta.json').then(r => r.json()).catch(() => ({})),
+    fetch('team_colors.json').then(r => r.json()).catch(() => ({})),
     loadDDragon(),
   ]);
+  TEAMCOLORS = tc || {};
   G = g; TG = tg; META = meta;
   SKMAP = new Map();
   for (const r of sk) SKMAP.set(`${r.key}|${r.year}|${r.league}`, { sk: r.sk, g: r.g });
@@ -79,6 +93,7 @@ const state = {
   metrics: new Set(CORE_METRICS),   // null = all metrics
   sortKey: '경기수', sortDir: -1,
   tab: 'lb', pid: null, chartMetric: 'KDA',
+  cmp: [], cmpMetric: 'KDA',
   teamSortKey: '승률%', teamSortDir: -1,
   champSortKey: '경기수', champSortDir: -1,
 };
@@ -111,7 +126,9 @@ const METRIC_HELP = {
   '대표선수': '이 챔피언 최다 플레이어 (픽 수)',
 };
 const CHART_METRICS = ['KDA', 'DPM', 'GPM', 'CS/분', '승률%', 'KP%'];
-const TABS = ['lb', 'detail', 'team', 'champs', 'records'];
+const TABS = ['lb', 'detail', 'cmp', 'team', 'champs', 'records'];
+const CMP_COLORS = ['#c8aa6e', '#5c9de0', '#e0715c'];
+const RADAR_AXES = ['KDA', 'DPM', 'GPM', 'CS/분', 'KP%', '시야/분'];
 
 function currentFilter() {
   return {
@@ -148,6 +165,7 @@ function stateToURL() {
   if (state.tab !== 'lb') p.set('t', state.tab);
   if (state.tab === 'detail' && state.pid) p.set('p', state.pid);
   if (state.chartMetric !== 'KDA') p.set('cm', state.chartMetric);
+  if (state.cmp.length) p.set('cmp', state.cmp.map(encodeURIComponent).join(','));
   const qs = p.toString();
   history.replaceState(null, '', qs ? '?' + qs : location.pathname);
 }
@@ -169,6 +187,9 @@ function urlToState() {
   if (TABS.includes(p.get('t'))) state.tab = p.get('t');
   if (p.get('p')) state.pid = p.get('p');
   if (CHART_METRICS.includes(p.get('cm'))) state.chartMetric = p.get('cm');
+  if (p.get('cmp')) {
+    state.cmp = p.get('cmp').split(',').map(decodeURIComponent).slice(0, 3);
+  }
 }
 
 // ---------------------------------------------------------------- multiselect
@@ -257,7 +278,10 @@ function closeAllMS() {
 }
 document.addEventListener('click', (e) => {
   if (!e.target.closest('.ms')) closeAllMS();
-  if (!e.target.closest('.player-search')) $('playerList').hidden = true;
+  if (!e.target.closest('.player-search')) {
+    $('playerList').hidden = true;
+    $('cmpList').hidden = true;
+  }
 });
 
 // ---------------------------------------------------------------- helpers
@@ -326,6 +350,7 @@ function renderAll() {
   renderSummary();
   renderLeaderboard();
   renderDetail();
+  renderCompare();
   renderTeams();
   renderChampions();
   renderRecords();
@@ -402,7 +427,7 @@ function renderLeaderboard() {
       }).join('');
       return `<tr data-pid="${esc(r._pid)}"><td class="rank">${idx + 1}</td>` +
         `<td class="txt player">${esc(r['선수'])}</td>` +
-        `<td class="txt">${esc(r['팀'])}</td><td class="txt">${posBadge(r['포지션'])}</td>${tds}</tr>`;
+        `<td class="txt">${teamDot(r['팀'])}${esc(r['팀'])}</td><td class="txt">${posBadge(r['포지션'])}</td>${tds}</tr>`;
     },
     { key: state.sortKey, dir: state.sortDir },
     (k, isTxt) => {
@@ -589,10 +614,12 @@ function renderDetail() {
     ['KP%', fmt(tot['KP%'], 1) + '%'],
   ].map(([k, v]) =>
     `<div class="ph-chip"><span>${k}</span><b>${v}</b></div>`).join('');
+  const mainTeam = A.topOf(acc.teams);
   const headHtml =
     `<div class="player-head">` +
     `<div class="ph-name">${esc(name)}</div>` +
-    `<div class="ph-meta">${esc(A.topOf(acc.teams))} ${posBadge(A.topOf(acc.poss))}</div>` +
+    `<div class="ph-meta">${teamDot(mainTeam)}${esc(mainTeam)} ${posBadge(A.topOf(acc.poss))}` +
+    ` <button type="button" class="btn ghost slim" id="btnAddCmp">+ 비교</button></div>` +
     `<div class="ph-chips">${headChips}</div></div>`;
 
   // Short x-axis labels ("'23 Spring PO", "'24 MSI"); full text in tooltips.
@@ -619,6 +646,201 @@ function renderDetail() {
   // show the most recent seasons first on long careers
   const sc = body.querySelector('.chart-scroll');
   if (sc) sc.scrollLeft = sc.scrollWidth;
+  const addBtn = body.querySelector('#btnAddCmp');
+  if (addBtn) addBtn.onclick = () => { addToCmp(pid); switchTab('cmp'); };
+}
+
+// ---------------------------------------------------------------- compare
+function addToCmp(pid) {
+  if (!pid || state.cmp.includes(pid) || state.cmp.length >= 3) return;
+  state.cmp.push(pid);
+  renderCompare();
+  stateToURL();
+}
+
+function positionPercentile(poolRows, pos, metric, value) {
+  if (value == null) return null;
+  let pool = poolRows.filter(r => r['포지션'] === pos)
+    .map(r => r[metric]).filter(v => v != null);
+  if (pool.length < 8) {
+    pool = poolRows.map(r => r[metric]).filter(v => v != null);
+  }
+  if (pool.length < 2) return null;
+  pool.sort((a, b) => a - b);
+  let lo = 0, hi = pool.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (pool[m] < value) lo = m + 1; else hi = m; }
+  return Math.min(1, lo / (pool.length - 1));
+}
+
+function radarSVG(sel, pool) {
+  const W = 470, H = 430, cx = W / 2, cy = H / 2 + 4, R = 148;
+  const N = RADAR_AXES.length;
+  const pt = (k, r) => {
+    const a = (-90 + k * 360 / N) * Math.PI / 180;
+    return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+  };
+  let grid = '';
+  for (const frac of [0.25, 0.5, 0.75, 1]) {
+    const ring = Array.from({ length: N }, (_, k) => pt(k, R * frac).map(v => v.toFixed(1)).join(',')).join(' ');
+    grid += `<polygon class="r-grid" points="${ring}"/>`;
+  }
+  for (let k = 0; k < N; k++) {
+    const [x, y] = pt(k, R);
+    grid += `<line class="r-grid" x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}"/>`;
+    const [lx, ly] = pt(k, R + 22);
+    grid += `<text class="r-lab" x="${lx.toFixed(1)}" y="${(ly + 4).toFixed(1)}" text-anchor="middle">${esc(RADAR_AXES[k])}</text>`;
+  }
+  let shapes = '';
+  sel.forEach((s, i) => {
+    if (!s.row) return;
+    const color = CMP_COLORS[i];
+    const verts = RADAR_AXES.map((m, k) => {
+      const v = s.row[m];
+      const p = positionPercentile(pool, s.row['포지션'], m, v) ?? 0;
+      return { m, v, p, xy: pt(k, R * p) };
+    });
+    const pts = verts.map(vv => vv.xy.map(n => n.toFixed(1)).join(',')).join(' ');
+    shapes += `<polygon points="${pts}" fill="${color}26" stroke="${color}" stroke-width="2"/>`;
+    shapes += verts.map(vv =>
+      `<circle cx="${vv.xy[0].toFixed(1)}" cy="${vv.xy[1].toFixed(1)}" r="3.4" fill="${color}">` +
+      `<title>${esc(s.row['선수'])} ${esc(vv.m)}: ${fmt(vv.v, DEC[vv.m])} (백분위 ${Math.round(vv.p * 100)})</title></circle>`
+    ).join('');
+  });
+  return `<div class="chart-box radar-box">` +
+    `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${grid}${shapes}</svg>` +
+    `<p class="note dim">각 축은 현재 필터에서 <b>같은 포지션</b> 선수들(최소 ${state.minGames}경기) 대비 백분위(0~100). 점에 마우스를 올리면 실제 값이 표시됩니다.</p></div>`;
+}
+
+function cmpTrendSVG(sel) {
+  const c = G.cols;
+  const codeOf = new Map(sel.map(s => [s.pid, c.pid.d.indexOf(s.pid)]));
+  const perYear = new Map(); // pid -> Map(year -> acc)
+  for (const s of sel) perYear.set(s.pid, new Map());
+  for (const i of curRows) {
+    for (const s of sel) {
+      if (c.pid.i[i] !== codeOf.get(s.pid)) continue;
+      const ym = perYear.get(s.pid);
+      let acc = ym.get(c.year[i]);
+      if (!acc) { acc = A.newAcc(); ym.set(c.year[i], acc); }
+      A.accAdd(acc, i, G);
+    }
+  }
+  const years = [...new Set([].concat(...[...perYear.values()].map(m => [...m.keys()])))]
+    .sort((a, b) => a - b);
+  if (!years.length) return '';
+  const series = sel.map((s, i) => ({
+    name: G.displayName[s.pid] || '?', color: CMP_COLORS[i],
+    vals: years.map(y => {
+      const acc = perYear.get(s.pid).get(y);
+      return acc ? A.accFinish(acc, null)[state.cmpMetric] : null;
+    }),
+  }));
+  const padL = 48, padR = 20, padT = 30, padB = 34, H = 260;
+  const W = Math.max(560, padL + padR + (years.length - 1) * 72);
+  const all = series.flatMap(s => s.vals).filter(v => v != null);
+  if (!all.length) return '';
+  const vmin = Math.min(...all), vmax = Math.max(...all);
+  const span = (vmax - vmin) || 1;
+  const y = v => padT + (H - padT - padB) * (1 - (v - vmin + span * .08) / (span * 1.16));
+  const x = i => years.length === 1 ? W / 2 : padL + (W - padL - padR) * (i / (years.length - 1));
+  let out = '';
+  for (let g = 0; g <= 3; g++) {
+    const gv = vmin + span * g / 3;
+    out += `<line class="c-grid" x1="${padL}" x2="${W - padR}" y1="${y(gv)}" y2="${y(gv)}"/>` +
+      `<text class="c-txt" x="${padL - 6}" y="${y(gv) + 3}" text-anchor="end">${fmt(gv, DEC[state.cmpMetric] ?? 1)}</text>`;
+  }
+  out += years.map((yr, i) =>
+    `<text class="c-txt" x="${x(i).toFixed(1)}" y="${H - 12}" text-anchor="middle">${yr}</text>`).join('');
+  for (const s of series) {
+    const pts = s.vals.map((v, i) => v == null ? null : `${x(i).toFixed(1)},${y(v).toFixed(1)}`)
+      .filter(Boolean).join(' ');
+    out += `<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="2"/>`;
+    out += s.vals.map((v, i) => v == null ? '' :
+      `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3.2" fill="${s.color}">` +
+      `<title>${esc(s.name)} ${yr(years[i])}: ${fmt(v, DEC[state.cmpMetric] ?? 2)}</title></circle>`).join('');
+  }
+  function yr(v) { return v; }
+  const legend = series.map(s =>
+    `<span class="cl-item"><span class="cl-dot" style="background:${s.color}"></span>${esc(s.name)}</span>`).join('');
+  const metricSel = `<select id="cmpMetricSel" class="select slim">` +
+    CHART_METRICS.map(m => `<option${m === state.cmpMetric ? ' selected' : ''}>${m}</option>`).join('') + `</select>`;
+  return `<div class="chart-box"><div class="cmp-trend-head">${metricSel}<div class="c-legend">${legend}</div></div>` +
+    `<div class="chart-scroll"><svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${out}</svg></div></div>`;
+}
+
+function cmpTableHTML(sel) {
+  const mets = visibleMetrics();
+  const heads = sel.map((s, i) => {
+    const nm = G.displayName[s.pid] || '?';
+    const sub = s.row
+      ? `${teamDot(s.row['팀'])}${esc(s.row['팀'])} · ${posLabel(s.row['포지션'])} · ${s.row['경기수']}경기`
+      : '필터 내 데이터 없음';
+    return `<th class="cmp-col" style="--cc:${CMP_COLORS[i]}"><div class="cmp-name">${esc(nm)}</div><div class="cmp-sub">${sub}</div></th>`;
+  }).join('');
+  const rows = mets.map(m => {
+    const vals = sel.map(s => s.row ? s.row[m] : null);
+    const usable = vals.filter(v => v != null);
+    let bestIdx = -1;
+    if (usable.length > 1) {
+      const best = LOWER_BETTER.has(m) ? Math.min(...usable) : Math.max(...usable);
+      const matches = vals.map((v, i) => v === best ? i : -1).filter(i => i >= 0);
+      if (matches.length === 1) bestIdx = matches[0];
+    }
+    const help = METRIC_HELP[m] ? ` title="${esc(METRIC_HELP[m])}"` : '';
+    return `<tr><td class="txt"${help}>${esc(m)}</td>` + vals.map((v, i) =>
+      `<td class="${i === bestIdx ? 'cmp-best' : ''}">${fmt(v, DEC[m])}</td>`).join('') + '</tr>';
+  }).join('');
+  return `<div class="table-wrap cmp-table"><table><thead><tr><th class="txt">지표</th>${heads}</tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function renderCmpSlots() {
+  $('cmpSlots').innerHTML = state.cmp.map((pid, i) =>
+    `<span class="cmp-chip" style="--cc:${CMP_COLORS[i]}">${esc(G.displayName[pid] || pid)}` +
+    `<button type="button" data-i="${i}" aria-label="제거">×</button></span>`).join('');
+  $('cmpSlots').querySelectorAll('button').forEach(b => {
+    b.onclick = () => {
+      state.cmp.splice(+b.dataset.i, 1);
+      renderCompare();
+      stateToURL();
+    };
+  });
+  const inp = $('cmpSearch');
+  inp.disabled = state.cmp.length >= 3;
+  inp.placeholder = state.cmp.length >= 3 ? '최대 3명' : '선수 추가 (최대 3명)…';
+}
+
+function renderCmpList(query) {
+  const pool = playerPool().filter(p => !state.cmp.includes(p.pid));
+  const qq = (query || '').trim().toLowerCase();
+  const list = pool.filter(p => !qq || p.name.toLowerCase().includes(qq)).slice(0, 60);
+  const box = $('cmpList');
+  box.innerHTML = list.map(p =>
+    `<div data-pid="${esc(p.pid)}"><span>${esc(p.name)}</span><small>${p.games}경기</small></div>`).join('');
+  box.hidden = !list.length;
+  box.querySelectorAll('div[data-pid]').forEach(el => {
+    el.onclick = () => {
+      box.hidden = true;
+      $('cmpSearch').value = '';
+      addToCmp(el.dataset.pid);
+    };
+  });
+}
+
+function renderCompare() {
+  renderCmpSlots();
+  const body = $('cmpBody');
+  if (!state.cmp.length) {
+    body.innerHTML = '<div class="empty">검색창에서 선수를 추가하세요 (2~3명 비교).<br>' +
+      '선수 상세 탭의 "+ 비교" 버튼, 또는 리더보드 더블클릭 → 상세에서도 추가할 수 있습니다.</div>';
+    return;
+  }
+  const lbAll = A.buildLeaderboard(G, SKMAP, curRows, 1);
+  const by = new Map(lbAll.map(r => [r._pid, r]));
+  const sel = state.cmp.map(pid => ({ pid, row: by.get(pid) || null }));
+  const pool = A.buildLeaderboard(G, SKMAP, curRows, state.minGames);
+  body.innerHTML = radarSVG(sel, pool) + cmpTrendSVG(sel) + cmpTableHTML(sel);
+  const s = $('cmpMetricSel');
+  if (s) s.onchange = () => { state.cmpMetric = s.value; renderCompare(); };
 }
 
 // ---------------------------------------------------------------- teams
@@ -632,7 +854,7 @@ function renderTeams() {
   sortRows(rows, state.teamSortKey, state.teamSortDir);
   sortableTable('teamWrap', ['팀', '경기수', '승', '승률%', '블루승률%', '레드승률%'], ['팀'],
     rows,
-    r => `<tr><td class="txt player">${esc(r['팀'])}</td>` +
+    r => `<tr><td class="txt player">${teamDot(r['팀'])}${esc(r['팀'])}</td>` +
       ['경기수', '승', '승률%', '블루승률%', '레드승률%'].map(cc =>
         `<td>${fmt(r[cc], cc === '경기수' || cc === '승' ? 0 : 1)}</td>`).join('') + '</tr>',
     { key: state.teamSortKey, dir: state.teamSortDir },
@@ -642,10 +864,12 @@ function renderTeams() {
       renderTeams();
     });
   const byWr = [...rows].sort((a, b) => b['승률%'] - a['승률%']);
-  $('teamBars').innerHTML = byWr.map(r =>
-    `<div class="tb-row"><div class="tb-name">${esc(r['팀'])}</div>` +
-    `<div class="tb-track"><div class="tb-fill" style="width:${r['승률%'].toFixed(1)}%"></div></div>` +
-    `<div class="tb-val">${r['승률%'].toFixed(1)}%</div></div>`).join('');
+  $('teamBars').innerHTML = byWr.map(r => {
+    const col = teamColor(r['팀']);
+    return `<div class="tb-row"><div class="tb-name">${teamDot(r['팀'])}${esc(r['팀'])}</div>` +
+      `<div class="tb-track"><div class="tb-fill" style="width:${r['승률%'].toFixed(1)}%;background:linear-gradient(90deg,color-mix(in srgb,${col} 45%,#333),${col})"></div></div>` +
+      `<div class="tb-val">${r['승률%'].toFixed(1)}%</div></div>`;
+  }).join('');
 }
 
 // ---------------------------------------------------------------- champions
@@ -841,6 +1065,8 @@ function initControls() {
 
   $('playerSearch').oninput = () => renderPlayerList($('playerSearch').value);
   $('playerSearch').onfocus = () => renderPlayerList($('playerSearch').value);
+  $('cmpSearch').oninput = () => renderCmpList($('cmpSearch').value);
+  $('cmpSearch').onfocus = () => renderCmpList($('cmpSearch').value);
 
   $('filterToggle').onclick = () => $('sidebar').classList.toggle('open');
 

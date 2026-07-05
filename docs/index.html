@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>LCK 선수 통계</title>
 <meta name="description" content="LCK 프로 선수 통계 — 년도·시즌·라운드·팀·포지션·국제대회별 리더보드, 선수 상세, 팀 승률 (2015~현재)">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230b0b0d'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='%23c8aa6e' font-family='Arial' font-weight='bold'>L</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230b0b0d'/><rect width='100' height='100' rx='20' fill='none' stroke='%236e5f3f' stroke-width='3'/><rect x='20' y='54' width='14' height='24' rx='3' fill='%23a08752'/><rect x='43' y='38' width='14' height='40' rx='3' fill='%23c8aa6e'/><rect x='66' y='22' width='14' height='56' rx='3' fill='%23e8cf9b'/><path d='M50 6 l5 5 -5 5 -5 -5 z' fill='%23c8aa6e'/></svg>">
+<meta name="theme-color" content="#0b0b0d">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -70,6 +71,7 @@
     <nav class="tabs" id="tabs">
       <button class="tab active" data-tab="lb">선수 리더보드</button>
       <button class="tab" data-tab="detail">선수 상세</button>
+      <button class="tab" data-tab="cmp">선수 비교</button>
       <button class="tab" data-tab="team">팀</button>
       <button class="tab" data-tab="champs">챔피언</button>
       <button class="tab" data-tab="records">기록실</button>
@@ -100,6 +102,17 @@
         <select id="chartMetric" class="select"></select>
       </div>
       <div id="detailBody"></div>
+    </section>
+
+    <section class="pane" id="pane-cmp">
+      <div class="cmp-pick">
+        <div id="cmpSlots" class="cmp-slots"></div>
+        <div class="player-search cmp-search">
+          <input type="text" id="cmpSearch" placeholder="선수 추가 (최대 3명)…" autocomplete="off">
+          <div class="player-list" id="cmpList" hidden></div>
+        </div>
+      </div>
+      <div id="cmpBody"></div>
     </section>
 
     <section class="pane" id="pane-team">

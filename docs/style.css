@@ -334,6 +334,54 @@ tbody tr.me { background: rgba(200,170,110,.12); }
 .c-txt { fill: var(--muted); font-size: 10px; font-family: var(--font); }
 .c-val { fill: var(--gold-bright); font-size: 10px; font-weight: 700; font-family: var(--font); }
 
+/* ---------- team color dots ---------- */
+.tdot {
+  display: inline-block; width: 9px; height: 9px; border-radius: 3px;
+  margin-right: 7px; vertical-align: baseline;
+  box-shadow: 0 0 0 1px rgba(255,255,255,.08);
+}
+
+/* ---------- compare ---------- */
+.cmp-pick { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+.cmp-slots { display: flex; gap: 8px; flex-wrap: wrap; }
+.cmp-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: color-mix(in srgb, var(--cc) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cc) 55%, transparent);
+  color: var(--cc); font-weight: 700; font-size: 13px;
+  border-radius: 999px; padding: 5px 8px 5px 13px;
+}
+.cmp-chip button {
+  background: none; border: 0; color: var(--cc); cursor: pointer;
+  font-size: 15px; line-height: 1; padding: 0 4px; opacity: .7;
+}
+.cmp-chip button:hover { opacity: 1; }
+.cmp-search { width: 240px; }
+
+.radar-box { display: flex; flex-direction: column; align-items: center; }
+.radar-box svg { max-width: 100%; height: auto; }
+.r-grid { stroke: #26262d; stroke-width: 1; fill: none; }
+.r-lab { fill: var(--muted); font-size: 11.5px; font-weight: 600; font-family: var(--font); }
+
+.cmp-trend-head {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 0 6px 10px;
+}
+.select.slim { padding: 5px 8px; font-size: 12.5px; }
+.c-legend { display: flex; gap: 14px; flex-wrap: wrap; }
+.cl-item { font-size: 12.5px; color: var(--text); display: inline-flex; align-items: center; gap: 6px; }
+.cl-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+.cmp-table th.cmp-col { text-align: left; border-top: 2px solid var(--cc); }
+.cmp-table .cmp-name { font-size: 14px; font-weight: 800; color: var(--cc); }
+.cmp-table .cmp-sub { font-size: 11px; color: var(--muted); font-weight: 400; margin-top: 2px; }
+.cmp-table td { text-align: left; font-size: 13px; }
+.cmp-table td.txt { color: var(--muted); font-size: 12.5px; }
+.cmp-table td.cmp-best { color: var(--gold-bright); font-weight: 800; background: rgba(200,170,110,.08); }
+@media (max-width: 900px) {
+  .cmp-search { width: 100%; }
+}
+
 /* ---------- team bars ---------- */
 .team-bars { margin-top: 18px; display: grid; gap: 7px; }
 .tb-row { display: grid; grid-template-columns: 170px 1fr 52px; align-items: center; gap: 10px; }

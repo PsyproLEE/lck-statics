@@ -11,6 +11,7 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -159,6 +160,15 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
     else:
         df["playoffs"] = 0
     df["round_label"] = df["playoffs"].map({1: "플레이오프"}).fillna("정규시즌")
+
+    # OE folds promotion tournaments (승강전, 2015-2020 era) into the next
+    # regular split. src/promotion_gameids.json (built once from Leaguepedia
+    # by matching teams+dates) reclassifies those games so the round filter
+    # can include/exclude them.
+    promo_file = Path(__file__).resolve().parent / "promotion_gameids.json"
+    if promo_file.exists():
+        promo = set(json.loads(promo_file.read_text(encoding="utf-8"))["gameids"])
+        df.loc[df["gameid"].isin(promo), "round_label"] = "승강전"
 
     df["is_international"] = ~df["league"].isin(DOMESTIC_LEAGUES)
 
