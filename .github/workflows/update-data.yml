@@ -1,13 +1,13 @@
-# Weekly data refresh: Oracle's Elixir (current year) + gol.gg solo kills.
-# Commits the regenerated parquet files, which triggers Streamlit Cloud to
-# redeploy. Manual run: Actions tab -> "Update data" -> Run workflow.
+# Daily data refresh: Oracle's Elixir (current year) + gol.gg solo kills.
+# Commits the regenerated data only when it changed, so off-season days are
+# no-ops. Manual run: Actions tab -> "Update data" -> Run workflow.
 name: Update data
 
 on:
   schedule:
-    # Sunday 18:30 UTC = Monday 03:30 KST — right after the week's LCK
-    # matches (Wed-Sun) have finished and landed in OE's daily refresh.
-    - cron: "30 18 * * 0"
+    # 18:30 UTC = 03:30 KST — after the previous day's LCK matches
+    # (Wed-Sun) have landed in Oracle's Elixir daily refresh.
+    - cron: "30 18 * * *"
   workflow_dispatch:
 
 permissions:
